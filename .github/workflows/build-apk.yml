@@ -1,0 +1,71 @@
+name: Build WallSync APK
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:   # 수동 실행 버튼
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install dependencies
+        run: npm ci
+
+      # React → dist/
+      - name: Build web app
+        run: npm run build
+
+      # 커밋된 android 플랫폼에 웹 자산/설정 동기화 (플랫폼 생성 X)
+      - name: Sync Capacitor Android
+        run: npx cap sync android
+
+      - name: Grant Gradle execute permission
+        run: chmod +x android/gradlew
+
+      - name: Build Debug APK
+        run: |
+          cd android
+          ./gradlew assembleDebug --no-daemon
+
+      - name: Upload Debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: WallSync-Debug-APK
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 30
+
+      - name: Build Summary
+        if: always()
+        run: |
+          echo "## 빌드 결과 📱" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ -f android/app/build/outputs/apk/debug/app-debug.apk ]; then
+            SIZE=$(du -sh android/app/build/outputs/apk/debug/app-debug.apk | cut -f1)
+            echo "✅ Debug APK 빌드 성공 (크기: $SIZE)" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Actions 탭 → 이번 빌드 → 하단 **Artifacts → WallSync-Debug-APK** 다운로드" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ Debug APK 빌드 실패 — 위 로그를 확인하세요" >> $GITHUB_STEP_SUMMARY
+          fi

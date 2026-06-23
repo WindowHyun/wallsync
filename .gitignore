@@ -1,0 +1,17 @@
+node_modules/
+dist/
+.DS_Store
+
+# Android 빌드 결과물 (GitHub Actions가 생성)
+android/app/build/
+android/.gradle/
+android/local.properties
+
+# Keystore (절대 커밋 금지!)
+*.keystore
+*.jks
+android/keystore/
+
+# 환경변수
+.env
+.env.local

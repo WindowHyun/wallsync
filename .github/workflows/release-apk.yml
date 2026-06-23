@@ -1,0 +1,78 @@
+name: Release WallSync (Signed APK)
+
+# main 브랜치에 태그(v1.0.0 등)를 달면 자동 실행
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build React app
+        run: npm run build
+
+      - name: Sync Capacitor
+        run: npx cap sync android
+
+      # GitHub Secret에 저장된 keystore를 파일로 복원
+      - name: Restore Keystore
+        run: |
+          mkdir -p android/keystore
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > android/keystore/wallsync.keystore
+
+      - name: Grant Gradle permission
+        run: chmod +x android/gradlew
+
+      # 서명된 Release APK 빌드
+      - name: Build Signed Release APK
+        run: |
+          cd android
+          ./gradlew assembleRelease --no-daemon
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+
+      # GitHub Release 페이지에 APK 자동 첨부
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: android/app/build/outputs/apk/release/app-release.apk
+          name: "WallSync ${{ github.ref_name }}"
+          body: |
+            ## WallSync ${{ github.ref_name }}
+
+            ### 설치 방법
+            1. APK 파일 다운로드
+            2. 안드로이드 → 설정 → 알 수 없는 앱 설치 허용
+            3. APK 파일 실행하여 설치
+
+            ### 변경사항
+            배경화면 URL 등록 및 자동 업데이트 기능
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
