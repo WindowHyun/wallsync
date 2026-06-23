@@ -331,6 +331,7 @@ export default function App() {
   const [schedFor, setSchedFor] = useState<Source | null>(null);
   const [toasts, setToasts] = useState<ToastMsg[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [battOk, setBattOk] = useState<boolean | null>(null);
 
   useEffect(() => {
     try {
@@ -339,6 +340,21 @@ export default function App() {
     } catch { /* ignore */ }
     setLoaded(true);
   }, []);
+
+  // 배터리 최적화 예외 상태 확인 (설정에서 돌아올 때마다 재확인)
+  const checkBattery = useCallback(async () => {
+    if (!native) return;
+    try {
+      const r = await Wallpaper.isIgnoringBatteryOptimizations();
+      setBattOk(r.ignoring);
+    } catch { /* ignore */ }
+  }, []);
+  useEffect(() => {
+    checkBattery();
+    const onVis = () => { if (document.visibilityState === "visible") checkBattery(); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [checkBattery]);
   useEffect(() => {
     if (loaded) localStorage.setItem(STORE_KEY, JSON.stringify(sources));
   }, [sources, loaded]);
@@ -429,6 +445,31 @@ export default function App() {
         {!native && (
           <div style={{ margin: "12px 0 4px", padding: "10px 14px", borderRadius: 10, background: C.warn, color: "#000", fontSize: 12, fontWeight: 600 }}>
             ⚠️ 미리보기(웹) 모드입니다. 실제 배경화면 적용·자동 갱신은 안드로이드 기기에 설치한 WallSync 앱에서만 동작합니다.
+          </div>
+        )}
+
+        {native && battOk === false && (
+          <div style={{ margin: "12px 0 4px", padding: "12px 14px", borderRadius: 12, background: "rgba(245,158,11,0.12)", border: `1px solid ${C.warn}` }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: C.warn, marginBottom: 4 }}>🔋 배터리 최적화 해제 필요</div>
+            <div style={{ fontSize: 12, color: C.sub, lineHeight: 1.5, marginBottom: 10 }}>
+              최적화가 켜져 있으면 백그라운드 자동 갱신이 끊길 수 있습니다. 한 번만 해제하면 안정적으로 동작합니다.
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={async () => { try { await Wallpaper.requestIgnoreBatteryOptimizations(); } catch { /* */ } }}
+                style={{ padding: "8px 16px", borderRadius: 9, border: "none", background: C.warn, color: "#000", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                해제하기
+              </button>
+              <button onClick={async () => { try { await Wallpaper.openBatterySettings(); } catch { /* */ } }}
+                style={{ padding: "8px 14px", borderRadius: 9, border: `1px solid ${C.border}`, background: "transparent", color: C.sub, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                수동 설정
+              </button>
+            </div>
+          </div>
+        )}
+
+        {native && battOk === true && (
+          <div style={{ margin: "12px 0 4px", padding: "8px 12px", borderRadius: 10, background: C.tealSoft, border: `1px solid ${C.teal}`, color: C.teal, fontSize: 11, fontWeight: 600 }}>
+            ✓ 배터리 최적화 해제됨 — 백그라운드 자동 갱신 안정 동작
           </div>
         )}
 

@@ -15,6 +15,14 @@ export interface WallpaperPlugin {
   }): Promise<void>;
   /** 예약 취소 */
   cancel(options: { id: string }): Promise<void>;
+  /** 배터리 최적화 예외 여부 확인 */
+  isIgnoringBatteryOptimizations(): Promise<{ ignoring: boolean }>;
+  /** 배터리 최적화 해제 시스템 팝업 */
+  requestIgnoreBatteryOptimizations(): Promise<void>;
+  /** 배터리 최적화 목록 설정 화면 */
+  openBatterySettings(): Promise<void>;
+  /** 앱 상세 설정 화면 (폴백) */
+  openAppSettings(): Promise<void>;
 }
 
 export const Wallpaper = registerPlugin<WallpaperPlugin>("Wallpaper");
