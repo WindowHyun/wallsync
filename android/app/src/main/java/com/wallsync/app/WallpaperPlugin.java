@@ -1,8 +1,10 @@
 package com.wallsync.app;
 
+import android.Manifest;
 import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
+import android.os.Build;
 import android.os.PowerManager;
 import android.provider.Settings;
 
@@ -15,15 +17,27 @@ import androidx.work.OneTimeWorkRequest;
 import androidx.work.PeriodicWorkRequest;
 import androidx.work.WorkManager;
 
+import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
+import com.getcapacitor.PermissionState;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
+import com.getcapacitor.annotation.Permission;
+import com.getcapacitor.annotation.PermissionCallback;
 
+import org.json.JSONException;
+
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
-@CapacitorPlugin(name = "Wallpaper")
+@CapacitorPlugin(
+        name = "Wallpaper",
+        permissions = {
+                @Permission(alias = "notifications", strings = { Manifest.permission.POST_NOTIFICATIONS })
+        }
+)
 public class WallpaperPlugin extends Plugin {
 
     /** 지금 즉시 URL 이미지를 배경화면으로 적용 */
@@ -84,6 +98,7 @@ public class WallpaperPlugin extends Plugin {
             long delaySec = WallpaperWorker.secondsUntilNextDaily(hour, minute);
 
             Data data = new Data.Builder()
+                    .putString("id", id)
                     .putString("url", url)
                     .putString("target", target)
                     .putString("mode", "daily")
@@ -109,6 +124,7 @@ public class WallpaperPlugin extends Plugin {
             if (minutes == null || minutes < 15) minutes = 15;
 
             Data data = new Data.Builder()
+                    .putString("id", id)
                     .putString("url", url)
                     .putString("target", target)
                     .putString("mode", "interval")
@@ -139,6 +155,45 @@ public class WallpaperPlugin extends Plugin {
         }
         WorkManager.getInstance(getContext()).cancelUniqueWork("wallsync_" + id);
         call.resolve();
+    }
+
+    /** 각 소스의 마지막 자동 갱신 결과 조회 (워커가 SharedPreferences에 기록) */
+    @PluginMethod
+    public void getSyncStatus(PluginCall call) {
+        Map<String, ?> all = SyncStatusStore.all(getContext());
+        JSArray results = new JSArray();
+        for (Map.Entry<String, ?> e : all.entrySet()) {
+            Object v = e.getValue();
+            if (!(v instanceof String)) continue;
+            try {
+                JSObject o = new JSObject((String) v);
+                o.put("id", e.getKey());
+                results.put(o);
+            } catch (JSONException ignored) {}
+        }
+        JSObject ret = new JSObject();
+        ret.put("results", results);
+        call.resolve(ret);
+    }
+
+    /** 알림 권한 요청 (Android 13+) */
+    @PluginMethod
+    public void requestNotificationPermission(PluginCall call) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU
+                || getPermissionState("notifications") == PermissionState.GRANTED) {
+            JSObject ret = new JSObject();
+            ret.put("granted", true);
+            call.resolve(ret);
+            return;
+        }
+        requestPermissionForAlias("notifications", call, "notifPermCallback");
+    }
+
+    @PermissionCallback
+    private void notifPermCallback(PluginCall call) {
+        JSObject ret = new JSObject();
+        ret.put("granted", getPermissionState("notifications") == PermissionState.GRANTED);
+        call.resolve(ret);
     }
 
     /** 현재 앱이 배터리 최적화 예외인지 확인 */

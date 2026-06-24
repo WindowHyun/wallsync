@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { Capacitor } from "@capacitor/core";
-import { Wallpaper, WallpaperTarget } from "./wallpaper";
+import { Wallpaper, WallpaperTarget, SyncResult } from "./wallpaper";
 
 // ─── 테마 ──────────────────────────────────────────────────────────────────────
 const C = {
@@ -82,6 +82,13 @@ function scheduleNative(id: string, url: string, target: WallpaperTarget, s: Sch
     return Wallpaper.schedule({ id, url, target, mode: "interval", intervalMinutes: s.hours * 60 });
   }
   return Wallpaper.schedule({ id, url, target, mode: "daily", dailyHour: s.hour, dailyMinute: s.minute });
+}
+
+// 자동 갱신 마지막 결과 라벨
+function syncLabel(r: SyncResult | undefined): { text: string; color: string } | null {
+  if (!r) return null;
+  if (r.ok) return { text: `자동 갱신 ✓ ${timeAgo(r.time).replace(" 적용", "")}`, color: C.success };
+  return { text: "자동 갱신 ✗ 실패", color: C.error };
 }
 
 const STORE_KEY = "wallsync.sources.v1";
@@ -292,13 +299,15 @@ function ScheduleModal({ src, onSave, onClose }: { src: Source; onSave: (auto: b
 }
 
 // ─── 카드 ──────────────────────────────────────────────────────────────────────
-function SourceCard({ src, onApply, onTarget, onSchedule, onDelete }: {
+function SourceCard({ src, sync, onApply, onTarget, onSchedule, onDelete }: {
   src: Source;
+  sync?: SyncResult;
   onApply: (s: Source) => void;
   onTarget: (id: string, t: WallpaperTarget) => void;
   onSchedule: (s: Source) => void;
   onDelete: (id: string) => void;
 }) {
+  const sl = syncLabel(sync);
   return (
     <div style={{ background: C.card, borderRadius: 16, overflow: "hidden", border: `1.5px solid ${src.auto ? C.teal : "transparent"}` }}>
       <div style={{ position: "relative", paddingTop: "150%", background: C.surface }}>
@@ -318,8 +327,9 @@ function SourceCard({ src, onApply, onTarget, onSchedule, onDelete }: {
 
       <div style={{ padding: "10px 12px 12px" }}>
         <div style={{ color: C.text, fontSize: 13, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{src.name}</div>
-        <div style={{ color: C.muted, fontSize: 10, marginTop: 2, marginBottom: 8 }}>{timeAgo(src.lastApplied)}</div>
-        <div style={{ marginBottom: 8 }}><TargetPicker value={src.target} onChange={(t) => onTarget(src.id, t)} /></div>
+        <div style={{ color: C.muted, fontSize: 10, marginTop: 2 }}>{timeAgo(src.lastApplied)}</div>
+        {sl && <div style={{ color: sl.color, fontSize: 10, marginTop: 2 }} title={sync && !sync.ok ? sync.error : undefined}>{sl.text}</div>}
+        <div style={{ margin: "8px 0" }}><TargetPicker value={src.target} onChange={(t) => onTarget(src.id, t)} /></div>
         <div style={{ display: "flex", gap: 6 }}>
           <button onClick={() => onApply(src)} style={{ flex: 1, padding: "8px 0", borderRadius: 9, border: "none", background: C.accent, color: "white", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>지금 적용</button>
           <button onClick={() => onSchedule(src)} title="자동 갱신" style={{ padding: "8px 12px", borderRadius: 9, border: `1px solid ${src.auto ? C.teal : C.border}`, background: src.auto ? C.tealSoft : "transparent", color: src.auto ? C.teal : C.sub, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>⏰</button>
@@ -329,14 +339,88 @@ function SourceCard({ src, onApply, onTarget, onSchedule, onDelete }: {
   );
 }
 
+// ─── 백업/복원 모달 ─────────────────────────────────────────────────────────────────
+function BackupModal({ sources, onImport, onClose, toast }: {
+  sources: Source[];
+  onImport: (s: Source[]) => void;
+  onClose: () => void;
+  toast: (m: string, t?: ToastMsg["type"]) => void;
+}) {
+  const exportText = JSON.stringify(sources, null, 2);
+  const [text, setText] = useState("");
+
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(exportText); toast("✓ 클립보드에 복사됨"); }
+    catch { toast("복사 실패 — 아래 내용을 직접 선택해 복사하세요", "warn"); }
+  };
+  const download = () => {
+    try {
+      const blob = new Blob([exportText], { type: "application/json" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `wallsync-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    } catch { toast("다운로드 실패", "error"); }
+  };
+  const doImport = () => {
+    try {
+      const parsed = JSON.parse(text);
+      if (!Array.isArray(parsed)) throw new Error("배열 형식이 아닙니다");
+      const valid = parsed.filter((x) => x && typeof x.id === "string" && typeof x.url === "string" && (x.type === "kbo" || x.type === "url"));
+      if (valid.length === 0) throw new Error("유효한 항목이 없습니다");
+      onImport(valid as Source[]);
+      toast(`✓ ${valid.length}개 가져옴 (덮어쓰기)`);
+      onClose();
+    } catch (e) {
+      toast(`가져오기 실패: ${(e as Error).message}`, "error");
+    }
+  };
+
+  const box: React.CSSProperties = {
+    background: C.surface, border: `1px solid ${C.border}`, borderRadius: 9, padding: "9px 12px",
+    color: C.text, fontSize: 12, width: "100%", fontFamily: "monospace", resize: "vertical",
+  };
+  const btn = (bg: string, fg: string): React.CSSProperties => ({
+    flex: 1, padding: "9px 0", borderRadius: 9, border: "none", background: bg, color: fg, fontSize: 12, fontWeight: 700, cursor: "pointer",
+  });
+
+  return (
+    <div onClick={(e) => { if (e.target === e.currentTarget) onClose(); }} style={{
+      position: "fixed", inset: 0, background: "rgba(0,0,0,0.8)", zIndex: 200,
+      display: "flex", alignItems: "center", justifyContent: "center", padding: 16,
+    }}>
+      <div style={{ background: C.card, borderRadius: 20, padding: 24, width: "100%", maxWidth: 460, border: `1px solid ${C.border}`, maxHeight: "92vh", overflowY: "auto" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
+          <h3 style={{ margin: 0, fontSize: 18, fontWeight: 800 }}>⤓ 백업 / 복원</h3>
+          <button onClick={onClose} style={{ background: "none", border: "none", color: C.sub, cursor: "pointer", fontSize: 20 }}>✕</button>
+        </div>
+
+        <Lbl>내보내기 ({sources.length}개)</Lbl>
+        <textarea readOnly value={exportText} rows={5} style={{ ...box, marginBottom: 8 }} onFocus={(e) => e.currentTarget.select()} />
+        <div style={{ display: "flex", gap: 8, marginBottom: 18 }}>
+          <button onClick={copy} style={btn(C.accent, "white")}>클립보드 복사</button>
+          <button onClick={download} style={btn("transparent", C.sub)}>파일 다운로드</button>
+        </div>
+
+        <Lbl>가져오기 (붙여넣기 후 덮어쓰기)</Lbl>
+        <textarea value={text} onChange={(e) => setText(e.target.value)} rows={5} placeholder='[{"id":"...","url":"...","type":"kbo",...}]' style={{ ...box, marginBottom: 8 }} />
+        <button onClick={doImport} disabled={!text.trim()} style={{ ...btn(C.teal, "#003"), width: "100%", opacity: text.trim() ? 1 : 0.4 }}>가져오기 (현재 목록 덮어쓰기)</button>
+      </div>
+    </div>
+  );
+}
+
 // ─── App ──────────────────────────────────────────────────────────────────────
 export default function App() {
   const [sources, setSources] = useState<Source[]>([]);
   const [showAdd, setShowAdd] = useState(false);
+  const [showBackup, setShowBackup] = useState(false);
   const [schedFor, setSchedFor] = useState<Source | null>(null);
   const [toasts, setToasts] = useState<ToastMsg[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [battOk, setBattOk] = useState<boolean | null>(null);
+  const [syncStatus, setSyncStatus] = useState<Record<string, SyncResult>>({});
 
   useEffect(() => {
     try {
@@ -345,6 +429,23 @@ export default function App() {
     } catch { /* ignore */ }
     setLoaded(true);
   }, []);
+
+  // 자동 갱신 결과 이력 조회 (앱 진입/포그라운드 복귀 시)
+  const refreshSync = useCallback(async () => {
+    if (!native) return;
+    try {
+      const r = await Wallpaper.getSyncStatus();
+      const map: Record<string, SyncResult> = {};
+      for (const x of r.results) map[x.id] = x;
+      setSyncStatus(map);
+    } catch { /* ignore */ }
+  }, []);
+  useEffect(() => {
+    refreshSync();
+    const onVis = () => { if (document.visibilityState === "visible") refreshSync(); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [refreshSync]);
 
   // 배터리 최적화 예외 상태 확인 (설정에서 돌아올 때마다 재확인)
   const checkBattery = useCallback(async () => {
@@ -400,6 +501,8 @@ export default function App() {
     try {
       if (auto && schedule) {
         await scheduleNative(id, s.url, s.target, schedule);
+        // 실패 알림을 받을 수 있도록 알림 권한 요청 (Android 13+)
+        try { await Wallpaper.requestNotificationPermission(); } catch { /* ignore */ }
         toast("⏰ 자동 갱신 예약됨");
       } else {
         await Wallpaper.cancel({ id });
@@ -408,6 +511,19 @@ export default function App() {
     } catch (e) {
       toast((e as Error).message || "예약 실패", "error");
     }
+  };
+
+  // 복원: 기존 예약을 모두 취소하고 가져온 목록으로 교체, 자동 소스는 재예약
+  const handleImport = async (imported: Source[]) => {
+    if (native) {
+      try {
+        for (const old of sources) { try { await Wallpaper.cancel({ id: old.id }); } catch { /* ignore */ } }
+        for (const s of imported) {
+          if (s.auto && s.schedule) { try { await scheduleNative(s.id, s.url, s.target, s.schedule); } catch { /* ignore */ } }
+        }
+      } catch { /* ignore */ }
+    }
+    setSources(imported);
   };
 
   const handleDelete = async (id: string) => {
@@ -437,6 +553,7 @@ export default function App() {
       </div>
 
       {showAdd && <AddModal onAdd={(s) => { setSources((p) => [s, ...p]); toast(`✓ "${s.name}" 추가됨`); }} onClose={() => setShowAdd(false)} />}
+      {showBackup && <BackupModal sources={sources} onImport={handleImport} onClose={() => setShowBackup(false)} toast={toast} />}
       {schedFor && <ScheduleModal src={schedFor} onSave={(auto, s) => handleSchedSave(schedFor.id, auto, s)} onClose={() => setSchedFor(null)} />}
 
       <div style={{ maxWidth: 760, margin: "0 auto", padding: "24px 18px 60px" }}>
@@ -447,6 +564,7 @@ export default function App() {
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             {autoCount > 0 && <div style={{ padding: "6px 12px", borderRadius: 10, background: C.tealSoft, border: `1px solid ${C.teal}`, color: C.teal, fontSize: 12, fontWeight: 700 }}>⚡ {autoCount}개 자동</div>}
+            {sources.length > 0 && <button onClick={() => setShowBackup(true)} title="백업 / 복원" style={{ background: "transparent", border: `1px solid ${C.border}`, borderRadius: 11, padding: "9px 14px", color: C.sub, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>⤓ 백업</button>}
             <button onClick={() => setShowAdd(true)} style={{ background: `linear-gradient(135deg,${C.accent},#7C3AED)`, border: "none", borderRadius: 11, padding: "9px 18px", color: "white", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>+ 추가</button>
           </div>
         </div>
@@ -492,7 +610,7 @@ export default function App() {
           ) : (
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 14 }}>
               {sources.map((s) => (
-                <SourceCard key={s.id} src={s} onApply={handleApply} onTarget={handleTarget} onSchedule={(x) => setSchedFor(x)} onDelete={handleDelete} />
+                <SourceCard key={s.id} src={s} sync={syncStatus[s.id]} onApply={handleApply} onTarget={handleTarget} onSchedule={(x) => setSchedFor(x)} onDelete={handleDelete} />
               ))}
             </div>
           )}
