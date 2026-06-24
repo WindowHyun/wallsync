@@ -7,8 +7,9 @@ android {
         applicationId "com.wallsync.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        // 릴리스 워크플로가 -PvCode / -PvName 으로 주입 (없으면 로컬 기본값)
+        versionCode project.hasProperty('vCode') ? project.vCode.toInteger() : 1
+        versionName project.hasProperty('vName') ? project.vName : "1.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -56,7 +57,7 @@ dependencies {
     implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
     implementation project(':capacitor-android')
     // 백그라운드 자동 배경화면 갱신 스케줄링
-    implementation "androidx.work:work-runtime:2.9.1"
+    implementation "androidx.work:work-runtime:$androidxWorkVersion"
     testImplementation "junit:junit:$junitVersion"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"

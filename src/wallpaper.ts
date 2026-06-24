@@ -10,8 +10,14 @@ export interface WallpaperPlugin {
     id: string;
     url: string;
     target: WallpaperTarget;
-    intervalMinutes: number;
-    initialDelaySeconds?: number;
+    /** "interval": N분마다 반복 / "daily": 매일 dailyHour:dailyMinute 정시 */
+    mode: "interval" | "daily";
+    /** interval 모드 전용 — 반복 주기(분, 최소 15) */
+    intervalMinutes?: number;
+    /** daily 모드 전용 — 매일 적용 시각 (0~23) */
+    dailyHour?: number;
+    /** daily 모드 전용 — 매일 적용 분 (0~59) */
+    dailyMinute?: number;
   }): Promise<void>;
   /** 예약 취소 */
   cancel(options: { id: string }): Promise<void>;
