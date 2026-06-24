@@ -1,34 +1,39 @@
 # WallSync 남은 문제점 점검 리포트
 
 > 대상 브랜치: `claude/review-report-checklist-i2sus1`
-> 점검일: 2026-06-24 (1차 수정 커밋 `d56ecce` 반영 후 재점검)
+> 점검일: 2026-06-24 (1차 수정 `d56ecce` → 2차 수정 반영 후 재점검)
 > 범위: 웹(React/TS) + 네이티브(Android/Java) + 빌드/CI
-> **본 문서는 코드 수정 없이 현재 남은 이슈만 정리합니다.**
+> **본 문서는 잔여 이슈와 처리 현황을 정리합니다.**
 
 ---
 
 ## 요약
 
-1차 수정으로 High 3건, Medium 3건, Low 3건이 해소되었고, 아래 항목이 남아 있습니다.
+1차 수정으로 High 3·Medium 3·Low 3건 해소. **2차 수정에서 R1·R2 추가 해소.** 나머지는 보류/저우선.
 
-| # | 심각도 | 항목 | 분류 |
+| # | 심각도 | 항목 | 상태 |
 |---|--------|------|------|
-| R1 | 🟠 Medium | daily↔interval 모드 전환 시 이전 스케줄이 깨끗이 교체되지 않을 수 있음 | 1차 수정에서 파생 |
-| R2 | 🟠 Medium | `release-apk.yml`에 타입체크 게이트 없음 | 기존 누락 |
-| R3 | 🟠 Medium | 배터리 최적화 직접 요청 권한 — Play 정책 리스크 | 보류(#5) |
-| R4 | 🟡 Low | daily 워커가 실행 중 동일 unique work를 REPLACE (레이스 여지) | 1차 수정에서 파생 |
-| R5 | 🟡 Low | 미사용 FileProvider | 보류(#8) |
-| R6 | 🟡 Low | `allowBackup="true"` | 보류(#9) |
-| R7 | 🟡 Low | cleartext 전역 허용 | 보류(#13) |
-| R8 | 🟡 Low | 실제 테스트 부재 (템플릿 스텁만) | 기존 |
-| R9 | 🟡 Low | `versionCode` 고정(1) — 릴리스 자동 증가 없음 | 기존 |
-| R10 | 🟡 Low | 다운샘플 조건/원본 전량 메모리 적재의 엣지 | 1차 수정에서 파생 |
+| R1 | 🟠 Medium | daily↔interval 모드 전환 시 이전 스케줄이 깨끗이 교체되지 않을 수 있음 | ✅ 2차 수정 |
+| R2 | 🟠 Medium | `release-apk.yml`에 타입체크 게이트 없음 | ✅ 2차 수정 |
+| R3 | 🟠 Medium | 배터리 최적화 직접 요청 권한 — Play 정책 리스크 | ⏸ 보류(Play 배포 전제) |
+| R4 | 🟡 Low | daily 워커가 실행 중 동일 unique work를 REPLACE (레이스 여지) | ⏸ 모니터링 |
+| R5 | 🟡 Low | 미사용 FileProvider | ⏸ 보류 |
+| R6 | 🟡 Low | `allowBackup="true"` | ⏸ 보류 |
+| R7 | 🟡 Low | cleartext 전역 허용 | ⏸ 보류 |
+| R8 | 🟡 Low | 실제 테스트 부재 (템플릿 스텁만) | ⏸ 보류 |
+| R9 | 🟡 Low | `versionCode` 고정(1) — 릴리스 자동 증가 없음 | ⏸ 보류 |
+| R10 | 🟡 Low | 다운샘플 조건/원본 전량 메모리 적재의 엣지 | ⏸ 보류 |
+
+### ✅ 2차 수정 내역
+- **R1** — `WallpaperPlugin.schedule()`에서 enqueue 직전 `wm.cancelUniqueWork(workName)`를 호출해, daily↔interval 모드 전환 시 이전 작업 유형과 무관하게 기존 스케줄을 확실히 취소 후 재등록. (이전 OneTimeWork 체인 잔존/중복 발화 제거)
+- **R2** — `release-apk.yml` build 단계 앞에 `npm run typecheck` 게이트 추가. 이제 Debug·Release 두 워크플로 모두 타입검사 통과 후에만 빌드.
+- **검증**: `npm run typecheck` 통과, 두 워크플로 YAML 유효성 확인.
 
 ---
 
 ## 🟠 Medium
 
-### R1. daily ↔ interval 모드 전환 시 이전 스케줄이 잔존할 수 있음
+### R1. daily ↔ interval 모드 전환 시 이전 스케줄이 잔존할 수 있음  ✅ 해결됨
 - **위치**: `src/App.tsx` `scheduleNative()` → `WallpaperPlugin.java schedule()`
 - **현상**: 같은 소스(`workName = wallsync_<id>`)에서
   - interval 등록: `enqueueUniquePeriodicWork(name, ExistingPeriodicWorkPolicy.UPDATE, periodic)`
@@ -38,7 +43,7 @@
 - **영향**: 모드를 바꿔 저장한 직후 의도치 않은 추가 적용 1회 또는 중복 예약.
 - **권장**: 재등록 직전 항상 `cancelUniqueWork(name)` 호출 후 enqueue, 또는 두 경로 모두 `REPLACE` 계열로 통일.
 
-### R2. 릴리스 워크플로에 타입체크 게이트 없음
+### R2. 릴리스 워크플로에 타입체크 게이트 없음  ✅ 해결됨
 - **위치**: `.github/workflows/release-apk.yml` (35~37행: `npm ci` → `npm run build`로 바로 진행)
 - **현상**: 1차 수정에서 `build-apk.yml`에는 `npm run typecheck`를 추가했지만 `release-apk.yml`에는 없습니다. 태그 push로 만드는 **서명 릴리스 APK는 타입 검사를 건너뜁니다.**
 - **권장**: `release-apk.yml`의 build 단계 앞에도 동일하게 `npm run typecheck` 추가.

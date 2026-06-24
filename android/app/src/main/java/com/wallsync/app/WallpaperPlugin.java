@@ -66,6 +66,11 @@ public class WallpaperPlugin extends Plugin {
         }
 
         String workName = "wallsync_" + id;
+        WorkManager wm = WorkManager.getInstance(getContext());
+        // 모드 전환(daily↔interval) 시 이전 작업 유형이 달라 unique 정책만으로는
+        // 깨끗이 교체되지 않을 수 있으므로, 재등록 전 항상 기존 작업을 취소한다.
+        wm.cancelUniqueWork(workName);
+
         Constraints constraints = new Constraints.Builder()
                 .setRequiredNetworkType(NetworkType.CONNECTED)
                 .build();
@@ -94,7 +99,7 @@ public class WallpaperPlugin extends Plugin {
                     .build();
 
             // 설정을 바꿔 다시 저장하면 기존 체인을 교체
-            WorkManager.getInstance(getContext()).enqueueUniqueWork(
+            wm.enqueueUniqueWork(
                     workName,
                     ExistingWorkPolicy.REPLACE,
                     request);
@@ -115,7 +120,7 @@ public class WallpaperPlugin extends Plugin {
                     .setInputData(data)
                     .build();
 
-            WorkManager.getInstance(getContext()).enqueueUniquePeriodicWork(
+            wm.enqueueUniquePeriodicWork(
                     workName,
                     ExistingPeriodicWorkPolicy.UPDATE,
                     request);
