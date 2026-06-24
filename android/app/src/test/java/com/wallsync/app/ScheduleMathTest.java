@@ -63,4 +63,11 @@ public class ScheduleMathTest {
         assertEquals(1, ScheduleMath.calcInSampleSize(0, 0, 1440, 3120));
         assertEquals(1, ScheduleMath.calcInSampleSize(-1, -1, 1440, 3120));
     }
+
+    @Test
+    public void sample_extremeAspectRatio_downsampledByPixelCap() {
+        // 10000×2000: 한 축만 매우 큼 → 화면 맞춤(AND) 단계는 미발동이지만
+        // 총 픽셀(20M)이 상한(1440*3120*4≈17.97M) 초과 → 픽셀 안전장치로 2배 축소
+        assertEquals(2, ScheduleMath.calcInSampleSize(10000, 2000, 1440, 3120));
+    }
 }

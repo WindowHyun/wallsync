@@ -16,13 +16,13 @@
 | R1 | 🟠 Medium | daily↔interval 모드 전환 시 이전 스케줄이 깨끗이 교체되지 않을 수 있음 | ✅ 2차 수정 |
 | R2 | 🟠 Medium | `release-apk.yml`에 타입체크 게이트 없음 | ✅ 2차 수정 |
 | R3 | 🟠 Medium | 배터리 최적화 직접 요청 권한 — Play 정책 리스크 | ⏸ 보류(Play 배포 전제) |
-| R4 | 🟡 Low | daily 워커가 실행 중 동일 unique work를 REPLACE (레이스 여지) | ⏸ 모니터링 |
-| R5 | 🟡 Low | 미사용 FileProvider | ⏸ 보류 |
-| R6 | 🟡 Low | `allowBackup="true"` | ⏸ 보류 |
-| R7 | 🟡 Low | cleartext 전역 허용 | ⏸ 보류 |
+| R4 | 🟡 Low | daily 워커가 실행 중 동일 unique work를 REPLACE (레이스 여지) | ☑ 수용(설계상 필요) |
+| R5 | 🟡 Low | 미사용 FileProvider | ✅ 4차 수정 |
+| R6 | 🟡 Low | `allowBackup="true"` | ✅ 4차 수정 |
+| R7 | 🟡 Low | cleartext 전역 허용 | ☑ 수용(기능상 필요) |
 | R8 | 🟡 Low | 실제 테스트 부재 (템플릿 스텁만) | ✅ 3차 수정 |
 | R9 | 🟡 Low | `versionCode` 고정(1) — 릴리스 자동 증가 없음 | ✅ 3차 수정 |
-| R10 | 🟡 Low | 다운샘플 조건/원본 전량 메모리 적재의 엣지 | ⏸ 보류 |
+| R10 | 🟡 Low | 다운샘플 조건/원본 전량 메모리 적재의 엣지 | ✅ 4차 수정 |
 
 ### ✅ 2차 수정 내역
 - **R1** — `WallpaperPlugin.schedule()`에서 enqueue 직전 `wm.cancelUniqueWork(workName)`를 호출해, daily↔interval 모드 전환 시 이전 작업 유형과 무관하게 기존 스케줄을 확실히 취소 후 재등록. (이전 OneTimeWork 체인 잔존/중복 발화 제거)
@@ -32,6 +32,17 @@
 - **R9** — `app/build.gradle`이 `-PvCode`/`-PvName` Gradle 프로퍼티를 읽도록 변경(없으면 로컬 기본값 1 / "1.0"). `release-apk.yml`이 태그명(`v1.2.3`→`1.2.3`)을 versionName, `github.run_number`를 versionCode로 주입 → 릴리스마다 버전이 자동 증가하여 업데이트 배포 가능.
 - **R8** — Android 비의존 순수 로직을 `ScheduleMath`로 분리(`secondsUntilNextDaily`, `calcInSampleSize`)하고 `WallpaperWorker`/`WallpaperHelper`가 위임. JVM 단위 테스트 `ScheduleMathTest`(시각 경계·자정 넘김·다운샘플 경계 7케이스) 추가. `build-apk.yml`에 `testDebugUnitTest` 단계 추가.
 - **검증**: `npm run typecheck` 통과, 두 워크플로 YAML 유효성 확인, ScheduleMath 7개 케이스 독립 JVM 실행으로 전부 PASS(실제 JUnit은 CI에서 실행).
+
+### ✅ 4차 수정 내역
+- **R5** — 미사용 `FileProvider` `<provider>` 블록을 `AndroidManifest.xml`에서 제거하고 `res/xml/file_paths.xml` 삭제(코드 참조 없음 확인).
+- **R6** — `android:allowBackup="false"`로 변경. WebView localStorage(소스 목록)가 기기 간 자동 백업되지 않음. (재설치 시 목록 미복원이라는 트레이드오프는 명시 — 필요 시 `true`로 복귀 가능)
+- **R10** — `ScheduleMath.calcInSampleSize`에 픽셀 상한 안전장치 추가(요청 픽셀의 4배 초과 시 추가 축소) → 한 축만 큰 극단적 종횡비/초대형 이미지의 OOM 방지. `WallpaperHelper.download`에 64MB 응답 상한 추가. `ScheduleMathTest`에 극단 종횡비 케이스 추가(총 9케이스).
+- **검증**: 매니페스트 XML well-formed, `npm run typecheck` 통과, ScheduleMath 9개 케이스 독립 JVM 실행 전부 PASS.
+
+### ☑ 설계상 수용(미수정) 결정
+- **R3** — 배터리 최적화 직접 요청은 Play 제한 권한. 현재 배포가 사이드로드(Debug APK)라 유지하며, **Play Store 정식 배포 착수 시점**에 직접 요청 제거 + `openBatterySettings()` 안내로 전환(폴백 경로 존재).
+- **R4** — daily 워커의 self-reschedule가 동일 `workName`으로 `REPLACE`하는 것은, `cancel`이 같은 unique name을 찾아 취소해야 하므로 **이름 재사용이 필수**. 실행 직전 작업을 REPLACE하는 표준 패턴이며 레이스는 이론적 수준이라 유지(모니터링).
+- **R7** — 직접 URL 기능이 임의 호스트의 `http://` 이미지를 허용해야 하므로, cleartext를 특정 도메인으로 제한하면 기능이 깨짐. 전역 cleartext 허용을 **의도된 동작**으로 수용(KBO는 https 사용).
 
 ---
 

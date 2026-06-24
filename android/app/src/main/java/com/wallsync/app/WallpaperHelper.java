@@ -19,6 +19,9 @@ public final class WallpaperHelper {
 
     private WallpaperHelper() {}
 
+    /** 다운로드 응답 크기 상한 (메모리 보호). */
+    private static final long MAX_DOWNLOAD_BYTES = 64L * 1024 * 1024;
+
     /** target: "home" | "lock" | "both" */
     public static void setFromUrl(Context ctx, String urlStr, String target) throws IOException {
         byte[] bytes = download(urlStr);
@@ -79,7 +82,13 @@ public final class WallpaperHelper {
             ByteArrayOutputStream buffer = new ByteArrayOutputStream();
             byte[] chunk = new byte[8192];
             int n;
+            long total = 0;
             while ((n = in.read(chunk)) != -1) {
+                total += n;
+                // 비정상적으로 큰 응답은 메모리 보호를 위해 중단 (상한 64MB)
+                if (total > MAX_DOWNLOAD_BYTES) {
+                    throw new IOException("이미지가 너무 큽니다 (>64MB)");
+                }
                 buffer.write(chunk, 0, n);
             }
             return buffer.toByteArray();
