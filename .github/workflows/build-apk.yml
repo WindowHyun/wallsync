@@ -48,6 +48,12 @@ jobs:
       - name: Grant Gradle execute permission
         run: chmod +x android/gradlew
 
+      # 순수 로직(ScheduleMath) JVM 단위 테스트
+      - name: Run unit tests
+        run: |
+          cd android
+          ./gradlew testDebugUnitTest --no-daemon
+
       - name: Build Debug APK
         run: |
           cd android

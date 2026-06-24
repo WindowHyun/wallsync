@@ -36,7 +36,7 @@ public final class WallpaperHelper {
         BitmapFactory.decodeByteArray(bytes, 0, bytes.length, bounds);
 
         BitmapFactory.Options opts = new BitmapFactory.Options();
-        opts.inSampleSize = calcInSampleSize(bounds.outWidth, bounds.outHeight, reqW, reqH);
+        opts.inSampleSize = ScheduleMath.calcInSampleSize(bounds.outWidth, bounds.outHeight, reqW, reqH);
 
         Bitmap bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.length, opts);
         if (bitmap == null) {
@@ -54,6 +54,8 @@ public final class WallpaperHelper {
         // API 24+ : 홈/잠금 화면 개별 지정 가능 (minSdk 24)
         wm.setBitmap(bitmap, null, true, which);
     }
+
+
 
     /** URL 본문을 바이트 배열로 다운로드 (다운샘플링용 2-pass 디코드를 위해 메모리에 보관). */
     private static byte[] download(String urlStr) throws IOException {
@@ -89,15 +91,5 @@ public final class WallpaperHelper {
                 conn.disconnect();
             }
         }
-    }
-
-    /** 원본이 요청 크기보다 클 때 2의 거듭제곱 샘플 비율을 계산. */
-    private static int calcInSampleSize(int w, int h, int reqW, int reqH) {
-        int sample = 1;
-        if (w <= 0 || h <= 0) return sample;
-        while ((w / sample) > reqW * 2 && (h / sample) > reqH * 2) {
-            sample *= 2;
-        }
-        return sample;
     }
 }

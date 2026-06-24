@@ -56,17 +56,7 @@ public class WallpaperWorker extends Worker {
 
     /** 다음 dailyHour:dailyMinute 까지 남은 초 (현재 시각이 이미 지났으면 다음 날). */
     public static long secondsUntilNextDaily(int hour, int minute) {
-        Calendar now = Calendar.getInstance();
-        Calendar next = Calendar.getInstance();
-        next.set(Calendar.HOUR_OF_DAY, hour);
-        next.set(Calendar.MINUTE, minute);
-        next.set(Calendar.SECOND, 0);
-        next.set(Calendar.MILLISECOND, 0);
-        if (!next.after(now)) {
-            next.add(Calendar.DAY_OF_MONTH, 1);
-        }
-        long diffMs = next.getTimeInMillis() - now.getTimeInMillis();
-        return Math.max(0, diffMs / 1000);
+        return ScheduleMath.secondsUntilNextDaily(Calendar.getInstance(), hour, minute);
     }
 
     /** 같은 입력으로 다음 날 같은 시각에 다시 실행되도록 OneTimeWork를 재등록. */

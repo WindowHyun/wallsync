@@ -20,14 +20,18 @@
 | R5 | 🟡 Low | 미사용 FileProvider | ⏸ 보류 |
 | R6 | 🟡 Low | `allowBackup="true"` | ⏸ 보류 |
 | R7 | 🟡 Low | cleartext 전역 허용 | ⏸ 보류 |
-| R8 | 🟡 Low | 실제 테스트 부재 (템플릿 스텁만) | ⏸ 보류 |
-| R9 | 🟡 Low | `versionCode` 고정(1) — 릴리스 자동 증가 없음 | ⏸ 보류 |
+| R8 | 🟡 Low | 실제 테스트 부재 (템플릿 스텁만) | ✅ 3차 수정 |
+| R9 | 🟡 Low | `versionCode` 고정(1) — 릴리스 자동 증가 없음 | ✅ 3차 수정 |
 | R10 | 🟡 Low | 다운샘플 조건/원본 전량 메모리 적재의 엣지 | ⏸ 보류 |
 
 ### ✅ 2차 수정 내역
 - **R1** — `WallpaperPlugin.schedule()`에서 enqueue 직전 `wm.cancelUniqueWork(workName)`를 호출해, daily↔interval 모드 전환 시 이전 작업 유형과 무관하게 기존 스케줄을 확실히 취소 후 재등록. (이전 OneTimeWork 체인 잔존/중복 발화 제거)
 - **R2** — `release-apk.yml` build 단계 앞에 `npm run typecheck` 게이트 추가. 이제 Debug·Release 두 워크플로 모두 타입검사 통과 후에만 빌드.
-- **검증**: `npm run typecheck` 통과, 두 워크플로 YAML 유효성 확인.
+
+### ✅ 3차 수정 내역
+- **R9** — `app/build.gradle`이 `-PvCode`/`-PvName` Gradle 프로퍼티를 읽도록 변경(없으면 로컬 기본값 1 / "1.0"). `release-apk.yml`이 태그명(`v1.2.3`→`1.2.3`)을 versionName, `github.run_number`를 versionCode로 주입 → 릴리스마다 버전이 자동 증가하여 업데이트 배포 가능.
+- **R8** — Android 비의존 순수 로직을 `ScheduleMath`로 분리(`secondsUntilNextDaily`, `calcInSampleSize`)하고 `WallpaperWorker`/`WallpaperHelper`가 위임. JVM 단위 테스트 `ScheduleMathTest`(시각 경계·자정 넘김·다운샘플 경계 7케이스) 추가. `build-apk.yml`에 `testDebugUnitTest` 단계 추가.
+- **검증**: `npm run typecheck` 통과, 두 워크플로 YAML 유효성 확인, ScheduleMath 7개 케이스 독립 JVM 실행으로 전부 PASS(실제 JUnit은 CI에서 실행).
 
 ---
 
@@ -75,11 +79,11 @@
 - **현상**: #3 해결을 위해 전역 cleartext를 허용한 상태. 기능은 정상이나 보안상 평문 트래픽이 앱 전체에 허용됨.
 - **권장**: 보안 강화가 필요하면 `network-security-config`로 특정 도메인만 cleartext 허용하도록 좁히기.
 
-### R8. 실제 테스트 부재
+### R8. 실제 테스트 부재  ✅ 해결됨
 - **위치**: `ExampleUnitTest.java`, `ExampleInstrumentedTest.java` (Capacitor 템플릿 스텁)
 - 스케줄 시각 계산(`secondsUntilNextDaily`), 다운샘플 계산(`calcInSampleSize`) 등 순수 로직에 대한 단위 테스트가 없음. 회귀 방지를 위해 최소한의 JVM 단위 테스트 추가 권장.
 
-### R9. `versionCode`/`versionName` 고정
+### R9. `versionCode`/`versionName` 고정  ✅ 해결됨
 - **위치**: `android/app/build.gradle` (`versionCode 1`, `versionName "1.0"`)
 - 릴리스마다 수동 증가 필요. 태그 기반 자동 주입(예: `github.ref_name` → versionName, run number → versionCode) 부재.
 

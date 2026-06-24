@@ -52,11 +52,17 @@ jobs:
       - name: Grant Gradle permission
         run: chmod +x android/gradlew
 
-      # 서명된 Release APK 빌드
+      # 서명된 Release APK 빌드 (태그→versionName, run_number→versionCode 주입)
       - name: Build Signed Release APK
         run: |
+          case "$GITHUB_REF_NAME" in
+            v*) VERSION_NAME="${GITHUB_REF_NAME#v}" ;;
+            *)  VERSION_NAME="0.0.${{ github.run_number }}" ;;
+          esac
+          echo "versionName=$VERSION_NAME versionCode=${{ github.run_number }}"
           cd android
-          ./gradlew assembleRelease --no-daemon
+          ./gradlew assembleRelease --no-daemon \
+            -PvName="$VERSION_NAME" -PvCode=${{ github.run_number }}
         env:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
