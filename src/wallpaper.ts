@@ -2,6 +2,14 @@ import { registerPlugin } from "@capacitor/core";
 
 export type WallpaperTarget = "home" | "lock" | "both";
 
+/** 백그라운드 자동 갱신 1회 실행 결과 */
+export interface SyncResult {
+  id: string;
+  ok: boolean;
+  time: number;
+  error?: string;
+}
+
 export interface WallpaperPlugin {
   /** URL 이미지를 지금 즉시 배경화면으로 적용 */
   apply(options: { url: string; target: WallpaperTarget }): Promise<{ ok: boolean }>;
@@ -21,6 +29,10 @@ export interface WallpaperPlugin {
   }): Promise<void>;
   /** 예약 취소 */
   cancel(options: { id: string }): Promise<void>;
+  /** 각 소스의 마지막 자동 갱신 결과 조회 */
+  getSyncStatus(): Promise<{ results: SyncResult[] }>;
+  /** 알림 권한 요청 (Android 13+). 그 이하 버전은 항상 granted */
+  requestNotificationPermission(): Promise<{ granted: boolean }>;
   /** 배터리 최적화 예외 여부 확인 */
   isIgnoringBatteryOptimizations(): Promise<{ ignoring: boolean }>;
   /** 배터리 최적화 해제 시스템 팝업 */
