@@ -54,7 +54,10 @@ const RES = [
 const buildKboUrl = (k: KboConfig) =>
   `${KBO_BASE}?team=${encodeURIComponent(k.team)}&style=${k.style}&mode=${k.mode}&res=${k.res}`;
 
-const uid = () => Math.random().toString(36).slice(2, 9);
+const uid = () =>
+  typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : Math.random().toString(36).slice(2, 9);
 const native = Capacitor.isNativePlatform();
 
 function timeAgo(ts: number | null) {
@@ -72,13 +75,13 @@ function scheduleLabel(s: Schedule | null) {
   return `매일 ${String(s.hour).padStart(2, "0")}:${String(s.minute).padStart(2, "0")}`;
 }
 
-// 매일 HH:MM 까지 남은 초
-function dailyInitialDelay(hour: number, minute: number) {
-  const now = new Date();
-  const next = new Date(now);
-  next.setHours(hour, minute, 0, 0);
-  if (next <= now) next.setDate(next.getDate() + 1);
-  return Math.floor((next.getTime() - now.getTime()) / 1000);
+// 네이티브 예약 등록 (interval/daily). daily는 네이티브가 매 실행마다 다음 정시를
+// 스스로 재예약하므로 시각이 드리프트되지 않는다.
+function scheduleNative(id: string, url: string, target: WallpaperTarget, s: Schedule) {
+  if (s.kind === "interval") {
+    return Wallpaper.schedule({ id, url, target, mode: "interval", intervalMinutes: s.hours * 60 });
+  }
+  return Wallpaper.schedule({ id, url, target, mode: "daily", dailyHour: s.hour, dailyMinute: s.minute });
 }
 
 const STORE_KEY = "wallsync.sources.v1";
@@ -192,6 +195,7 @@ function AddModal({ onAdd, onClose }: { onAdd: (s: Source) => void; onClose: () 
           {resolvedUrl && (
             <div style={{ display: "flex", justifyContent: "center", marginTop: 4 }}>
               <img src={resolvedUrl} alt="preview" style={{ width: 120, height: 213, objectFit: "cover", borderRadius: 14, border: `1px solid ${C.border}`, background: C.surface }}
+                onLoad={(e) => { (e.target as HTMLImageElement).style.opacity = "1"; }}
                 onError={(e) => { (e.target as HTMLImageElement).style.opacity = "0.25"; }} />
             </div>
           )}
@@ -299,6 +303,7 @@ function SourceCard({ src, onApply, onTarget, onSchedule, onDelete }: {
     <div style={{ background: C.card, borderRadius: 16, overflow: "hidden", border: `1.5px solid ${src.auto ? C.teal : "transparent"}` }}>
       <div style={{ position: "relative", paddingTop: "150%", background: C.surface }}>
         <img src={src.url} alt={src.name} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }}
+          onLoad={(e) => { (e.target as HTMLImageElement).style.opacity = "1"; }}
           onError={(e) => { (e.target as HTMLImageElement).style.opacity = "0.2"; }} />
         <div style={{ position: "absolute", top: 8, left: 8, background: "rgba(0,0,0,0.6)", borderRadius: 6, padding: "2px 8px", fontSize: 9, fontWeight: 700, color: src.type === "kbo" ? C.teal : C.sub }}>
           {src.type === "kbo" ? "KBO" : "URL"}
@@ -376,8 +381,16 @@ export default function App() {
     }
   };
 
-  const handleTarget = (id: string, target: WallpaperTarget) =>
+  const handleTarget = async (id: string, target: WallpaperTarget) => {
     setSources((p) => p.map((x) => (x.id === id ? { ...x, target } : x)));
+    // 자동 갱신이 켜진 소스라면 백그라운드 작업도 새 대상으로 재등록 (표시값=실제동작 일치)
+    const s = sources.find((x) => x.id === id);
+    if (native && s && s.auto && s.schedule) {
+      try {
+        await scheduleNative(id, s.url, target, s.schedule);
+      } catch { /* ignore */ }
+    }
+  };
 
   const handleSchedSave = async (id: string, auto: boolean, schedule: Schedule | null) => {
     const s = sources.find((x) => x.id === id);
@@ -386,11 +399,7 @@ export default function App() {
     if (!native) { toast("예약은 설치된 앱에서만 동작합니다", "warn"); return; }
     try {
       if (auto && schedule) {
-        if (schedule.kind === "interval") {
-          await Wallpaper.schedule({ id, url: s.url, target: s.target, intervalMinutes: schedule.hours * 60 });
-        } else {
-          await Wallpaper.schedule({ id, url: s.url, target: s.target, intervalMinutes: 1440, initialDelaySeconds: dailyInitialDelay(schedule.hour, schedule.minute) });
-        }
+        await scheduleNative(id, s.url, s.target, schedule);
         toast("⏰ 자동 갱신 예약됨");
       } else {
         await Wallpaper.cancel({ id });

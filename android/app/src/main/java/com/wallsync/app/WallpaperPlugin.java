@@ -9,7 +9,9 @@ import android.provider.Settings;
 import androidx.work.Constraints;
 import androidx.work.Data;
 import androidx.work.ExistingPeriodicWorkPolicy;
+import androidx.work.ExistingWorkPolicy;
 import androidx.work.NetworkType;
+import androidx.work.OneTimeWorkRequest;
 import androidx.work.PeriodicWorkRequest;
 import androidx.work.WorkManager;
 
@@ -45,43 +47,79 @@ public class WallpaperPlugin extends Plugin {
         }).start();
     }
 
-    /** 자동 갱신 예약 (WorkManager 주기 작업) */
+    /**
+     * 자동 갱신 예약.
+     * - mode="interval" : N분마다 반복 (PeriodicWorkRequest, 최소 15분)
+     * - mode="daily"    : 매일 dailyHour:dailyMinute 정시. OneTimeWork가 매 실행마다
+     *                     다음 정시를 재예약하므로 시각이 드리프트되지 않는다.
+     */
     @PluginMethod
     public void schedule(PluginCall call) {
         String id = call.getString("id");
         String url = call.getString("url");
         String target = call.getString("target", "both");
-        Integer minutes = call.getInt("intervalMinutes", 360);
-        Integer initialDelaySec = call.getInt("initialDelaySeconds", 0);
+        String mode = call.getString("mode", "interval");
 
         if (id == null || url == null) {
             call.reject("id, url 파라미터가 필요합니다");
             return;
         }
-        // WorkManager 주기 작업 최소 간격은 15분
-        if (minutes == null || minutes < 15) minutes = 15;
-        if (initialDelaySec == null || initialDelaySec < 0) initialDelaySec = 0;
 
-        Data data = new Data.Builder()
-                .putString("url", url)
-                .putString("target", target)
-                .build();
-
+        String workName = "wallsync_" + id;
         Constraints constraints = new Constraints.Builder()
                 .setRequiredNetworkType(NetworkType.CONNECTED)
                 .build();
 
-        PeriodicWorkRequest request = new PeriodicWorkRequest.Builder(
-                WallpaperWorker.class, minutes, TimeUnit.MINUTES)
-                .setConstraints(constraints)
-                .setInputData(data)
-                .setInitialDelay(initialDelaySec, TimeUnit.SECONDS)
-                .build();
+        if ("daily".equals(mode)) {
+            Integer hour = call.getInt("dailyHour", 8);
+            Integer minute = call.getInt("dailyMinute", 0);
+            if (hour == null || hour < 0 || hour > 23) hour = 8;
+            if (minute == null || minute < 0 || minute > 59) minute = 0;
 
-        WorkManager.getInstance(getContext()).enqueueUniquePeriodicWork(
-                "wallsync_" + id,
-                ExistingPeriodicWorkPolicy.UPDATE,
-                request);
+            long delaySec = WallpaperWorker.secondsUntilNextDaily(hour, minute);
+
+            Data data = new Data.Builder()
+                    .putString("url", url)
+                    .putString("target", target)
+                    .putString("mode", "daily")
+                    .putString("workName", workName)
+                    .putInt("dailyHour", hour)
+                    .putInt("dailyMinute", minute)
+                    .build();
+
+            OneTimeWorkRequest request = new OneTimeWorkRequest.Builder(WallpaperWorker.class)
+                    .setConstraints(constraints)
+                    .setInputData(data)
+                    .setInitialDelay(delaySec, TimeUnit.SECONDS)
+                    .build();
+
+            // 설정을 바꿔 다시 저장하면 기존 체인을 교체
+            WorkManager.getInstance(getContext()).enqueueUniqueWork(
+                    workName,
+                    ExistingWorkPolicy.REPLACE,
+                    request);
+        } else {
+            Integer minutes = call.getInt("intervalMinutes", 360);
+            // WorkManager 주기 작업 최소 간격은 15분
+            if (minutes == null || minutes < 15) minutes = 15;
+
+            Data data = new Data.Builder()
+                    .putString("url", url)
+                    .putString("target", target)
+                    .putString("mode", "interval")
+                    .build();
+
+            PeriodicWorkRequest request = new PeriodicWorkRequest.Builder(
+                    WallpaperWorker.class, minutes, TimeUnit.MINUTES)
+                    .setConstraints(constraints)
+                    .setInputData(data)
+                    .build();
+
+            WorkManager.getInstance(getContext()).enqueueUniquePeriodicWork(
+                    workName,
+                    ExistingPeriodicWorkPolicy.UPDATE,
+                    request);
+        }
 
         call.resolve();
     }
