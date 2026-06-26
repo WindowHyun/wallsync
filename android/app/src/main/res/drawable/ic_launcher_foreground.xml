@@ -7,25 +7,21 @@
     <path
         android:fillColor="#FFFFFF"
         android:pathData="M24,54 a30,30 0 1,1 60,0 a30,30 0 1,1 -60,0 z" />
-    <!-- 왼쪽 실밥 곡선 -->
     <path
         android:strokeColor="#D62828"
         android:strokeWidth="2.4"
         android:strokeLineCap="round"
         android:pathData="M37,29 C29,42 29,66 37,79" />
-    <!-- 오른쪽 실밥 곡선 -->
     <path
         android:strokeColor="#D62828"
         android:strokeWidth="2.4"
         android:strokeLineCap="round"
         android:pathData="M71,29 C79,42 79,66 71,79" />
-    <!-- 왼쪽 스티치 -->
     <path
         android:strokeColor="#D62828"
         android:strokeWidth="1.6"
         android:strokeLineCap="round"
         android:pathData="M33,36 l7,2 M31,45 l7,1 M31,54 l7,0 M31,63 l7,-1 M33,72 l7,-2" />
-    <!-- 오른쪽 스티치 -->
     <path
         android:strokeColor="#D62828"
         android:strokeWidth="1.6"

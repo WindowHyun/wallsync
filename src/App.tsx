@@ -13,6 +13,13 @@ const C = {
 
 const KBO_BASE = "https://kbo-wallpaper.vercel.app/api/wallpaper";
 
+// 구단별 대표색 (다크 배경에서 잘 보이도록 보정)
+const TEAM_COLORS: Record<string, string> = {
+  KIA: "#E4002B", SAMSUNG: "#2E6CC4", LG: "#D6004E", DOOSAN: "#3A4D8F",
+  SSG: "#E81E33", LOTTE: "#2D5BA8", HANWHA: "#FF7A1A", NC: "#3D6CB0",
+  KIWOOM: "#A8324E", KT: "#5A6270",
+};
+
 // ─── 타입 ──────────────────────────────────────────────────────────────────────
 type Schedule =
   | { kind: "interval"; hours: number }
@@ -32,6 +39,9 @@ interface Source {
   addedAt: number;
   lastApplied: number | null;
 }
+
+const teamColor = (s: Source) =>
+  (s.type === "kbo" && s.kbo && TEAM_COLORS[s.kbo.team]) || C.accent;
 
 // ─── KBO 빌더 옵션 ───────────────────────────────────────────────────────────────
 const TEAMS = [
@@ -60,14 +70,15 @@ const uid = () =>
     : Math.random().toString(36).slice(2, 9);
 const native = Capacitor.isNativePlatform();
 
-function timeAgo(ts: number | null) {
-  if (!ts) return "미적용";
+function rel(ts: number) {
   const d = Date.now() - ts;
-  if (d < 60000) return "방금 전 적용";
-  if (d < 3600000) return `${Math.floor(d / 60000)}분 전 적용`;
-  if (d < 86400000) return `${Math.floor(d / 3600000)}시간 전 적용`;
-  return `${Math.floor(d / 86400000)}일 전 적용`;
+  if (d < 60000) return "방금 전";
+  if (d < 3600000) return `${Math.floor(d / 60000)}분 전`;
+  if (d < 86400000) return `${Math.floor(d / 3600000)}시간 전`;
+  return `${Math.floor(d / 86400000)}일 전`;
 }
+const appliedLabel = (ts: number | null) => (ts ? `${rel(ts)} 적용` : "미적용");
+const targetLabel = (t: WallpaperTarget) => (t === "home" ? "홈" : t === "lock" ? "잠금" : "홈+잠금");
 
 function scheduleLabel(s: Schedule | null) {
   if (!s) return "";
@@ -87,13 +98,20 @@ function scheduleNative(id: string, url: string, target: WallpaperTarget, s: Sch
 // 자동 갱신 마지막 결과 라벨
 function syncLabel(r: SyncResult | undefined): { text: string; color: string } | null {
   if (!r) return null;
-  if (r.ok) return { text: `자동 갱신 ✓ ${timeAgo(r.time).replace(" 적용", "")}`, color: C.success };
+  if (r.ok) return { text: `자동 갱신 ✓ ${rel(r.time)}`, color: C.success };
   return { text: "자동 갱신 ✗ 실패", color: C.error };
 }
 
 const STORE_KEY = "wallsync.sources.v1";
+const ACTIVE_KEY = "wallsync.active.v1";
 
-interface ToastMsg { id: string; msg: string; type: "success" | "error" | "warn" }
+interface ToastAction { label: string; fn: () => void }
+interface ToastMsg { id: string; msg: string; type: "success" | "error" | "warn"; action?: ToastAction }
+
+const ghostMini: React.CSSProperties = {
+  flex: 1, padding: "6px 0", borderRadius: 8, border: `1px solid ${C.border}`,
+  background: "transparent", color: C.sub, fontSize: 11, fontWeight: 600, cursor: "pointer",
+};
 
 // ─── 작은 컴포넌트 ────────────────────────────────────────────────────────────────
 function Lbl({ children }: { children: React.ReactNode }) {
@@ -116,25 +134,28 @@ function TargetPicker({ value, onChange }: { value: WallpaperTarget; onChange: (
   );
 }
 
-// ─── 추가 모달 ────────────────────────────────────────────────────────────────────
-function AddModal({ onAdd, onClose }: { onAdd: (s: Source) => void; onClose: () => void }) {
-  const [tab, setTab] = useState<"kbo" | "url">("kbo");
-  const [name, setName] = useState("");
-  const [url, setUrl] = useState("");
-  const [target, setTarget] = useState<WallpaperTarget>("both");
-  const [kbo, setKbo] = useState<KboConfig>({ team: "KIA", style: "minimal", mode: "dark", res: "android-fhd" });
+// ─── 추가/편집 모달 ────────────────────────────────────────────────────────────────
+function Editor({ editing, onSubmit, onClose }: { editing: Source | null; onSubmit: (s: Source) => void; onClose: () => void }) {
+  const [tab, setTab] = useState<"kbo" | "url">(editing?.type ?? "kbo");
+  const [name, setName] = useState(editing?.name ?? "");
+  const [url, setUrl] = useState(editing && editing.type === "url" ? editing.url : "");
+  const [target, setTarget] = useState<WallpaperTarget>(editing?.target ?? "both");
+  const [kbo, setKbo] = useState<KboConfig>(editing?.kbo ?? { team: "KIA", style: "minimal", mode: "dark", res: "android-fhd" });
 
   const resolvedUrl = tab === "kbo" ? buildKboUrl(kbo) : url.trim();
-  const teamLabel = TEAMS.find((t) => t[0] === kbo.team)?.[1] ?? kbo.team;
-  const defaultName = tab === "kbo" ? teamLabel : "내 배경화면";
+  const teamLabelTxt = TEAMS.find((t) => t[0] === kbo.team)?.[1] ?? kbo.team;
+  const defaultName = tab === "kbo" ? teamLabelTxt : "내 배경화면";
 
   const submit = () => {
     if (!resolvedUrl) return;
-    onAdd({
-      id: uid(), name: name.trim() || defaultName, type: tab, url: resolvedUrl, target,
-      kbo: tab === "kbo" ? kbo : undefined, auto: false, schedule: null,
-      addedAt: Date.now(), lastApplied: null,
-    });
+    if (editing) {
+      onSubmit({ ...editing, name: name.trim() || defaultName, type: tab, url: resolvedUrl, target, kbo: tab === "kbo" ? kbo : undefined });
+    } else {
+      onSubmit({
+        id: uid(), name: name.trim() || defaultName, type: tab, url: resolvedUrl, target,
+        kbo: tab === "kbo" ? kbo : undefined, auto: false, schedule: null, addedAt: Date.now(), lastApplied: null,
+      });
+    }
     onClose();
   };
 
@@ -154,7 +175,7 @@ function AddModal({ onAdd, onClose }: { onAdd: (s: Source) => void; onClose: () 
     }}>
       <div style={{ background: C.card, borderRadius: 22, padding: 24, width: "100%", maxWidth: 460, border: `1px solid ${C.border}`, maxHeight: "92vh", overflowY: "auto" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
-          <h3 style={{ margin: 0, fontSize: 18, fontWeight: 800 }}>배경화면 추가</h3>
+          <h3 style={{ margin: 0, fontSize: 18, fontWeight: 800 }}>{editing ? "배경화면 편집" : "배경화면 추가"}</h3>
           <button onClick={onClose} style={{ background: "none", border: "none", color: C.sub, cursor: "pointer", fontSize: 20 }}>✕</button>
         </div>
 
@@ -212,14 +233,14 @@ function AddModal({ onAdd, onClose }: { onAdd: (s: Source) => void; onClose: () 
           width: "100%", marginTop: 18, opacity: resolvedUrl ? 1 : 0.4,
           background: `linear-gradient(135deg,${C.accent},#7C3AED)`, border: "none",
           borderRadius: 13, padding: 13, color: "white", fontSize: 14, fontWeight: 700, cursor: "pointer",
-        }}>+ 추가하기</button>
+        }}>{editing ? "저장" : "+ 추가하기"}</button>
       </div>
     </div>
   );
 }
 
 // ─── 예약 모달 ────────────────────────────────────────────────────────────────────
-function ScheduleModal({ src, onSave, onClose }: { src: Source; onSave: (auto: boolean, s: Schedule | null) => void; onClose: () => void }) {
+function ScheduleModal({ src, onSave, onTest, onClose }: { src: Source; onSave: (auto: boolean, s: Schedule | null) => void; onTest: () => void; onClose: () => void }) {
   const [enabled, setEnabled] = useState(src.auto);
   const [kind, setKind] = useState<"interval" | "daily">(src.schedule?.kind ?? "interval");
   const [hours, setHours] = useState(src.schedule?.kind === "interval" ? src.schedule.hours : 6);
@@ -289,51 +310,15 @@ function ScheduleModal({ src, onSave, onClose }: { src: Source; onSave: (auto: b
           </div>
         </div>
 
+        <button onClick={onTest} style={{
+          width: "100%", marginTop: 16, background: "transparent", border: `1px solid ${C.teal}`,
+          borderRadius: 12, padding: 11, color: C.teal, fontSize: 13, fontWeight: 700, cursor: "pointer",
+        }}>⚡ 지금 한 번 적용 테스트</button>
+
         <button onClick={save} style={{
-          width: "100%", marginTop: 20, background: `linear-gradient(135deg,${C.accent},#7C3AED)`,
+          width: "100%", marginTop: 10, background: `linear-gradient(135deg,${C.accent},#7C3AED)`,
           border: "none", borderRadius: 12, padding: 12, color: "white", fontSize: 14, fontWeight: 700, cursor: "pointer",
         }}>저장</button>
-      </div>
-    </div>
-  );
-}
-
-// ─── 카드 ──────────────────────────────────────────────────────────────────────
-function SourceCard({ src, sync, onApply, onTarget, onSchedule, onDelete }: {
-  src: Source;
-  sync?: SyncResult;
-  onApply: (s: Source) => void;
-  onTarget: (id: string, t: WallpaperTarget) => void;
-  onSchedule: (s: Source) => void;
-  onDelete: (id: string) => void;
-}) {
-  const sl = syncLabel(sync);
-  return (
-    <div style={{ background: C.card, borderRadius: 16, overflow: "hidden", border: `1.5px solid ${src.auto ? C.teal : "transparent"}` }}>
-      <div style={{ position: "relative", paddingTop: "150%", background: C.surface }}>
-        <img src={src.url} alt={src.name} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }}
-          onLoad={(e) => { (e.target as HTMLImageElement).style.opacity = "1"; }}
-          onError={(e) => { (e.target as HTMLImageElement).style.opacity = "0.2"; }} />
-        <div style={{ position: "absolute", top: 8, left: 8, background: "rgba(0,0,0,0.6)", borderRadius: 6, padding: "2px 8px", fontSize: 9, fontWeight: 700, color: src.type === "kbo" ? C.teal : C.sub }}>
-          {src.type === "kbo" ? "KBO" : "URL"}
-        </div>
-        {src.auto && (
-          <div style={{ position: "absolute", top: 8, right: 8, background: C.tealSoft, border: `1px solid ${C.teal}`, borderRadius: 6, padding: "2px 7px", fontSize: 9, fontWeight: 700, color: C.teal }}>
-            ⚡ {scheduleLabel(src.schedule)}
-          </div>
-        )}
-        <button onClick={() => onDelete(src.id)} style={{ position: "absolute", bottom: 8, right: 8, width: 28, height: 28, borderRadius: 8, background: "rgba(0,0,0,0.6)", border: "none", color: C.error, cursor: "pointer", fontSize: 12 }}>✕</button>
-      </div>
-
-      <div style={{ padding: "10px 12px 12px" }}>
-        <div style={{ color: C.text, fontSize: 13, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{src.name}</div>
-        <div style={{ color: C.muted, fontSize: 10, marginTop: 2 }}>{timeAgo(src.lastApplied)}</div>
-        {sl && <div style={{ color: sl.color, fontSize: 10, marginTop: 2 }} title={sync && !sync.ok ? sync.error : undefined}>{sl.text}</div>}
-        <div style={{ margin: "8px 0" }}><TargetPicker value={src.target} onChange={(t) => onTarget(src.id, t)} /></div>
-        <div style={{ display: "flex", gap: 6 }}>
-          <button onClick={() => onApply(src)} style={{ flex: 1, padding: "8px 0", borderRadius: 9, border: "none", background: C.accent, color: "white", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>지금 적용</button>
-          <button onClick={() => onSchedule(src)} title="자동 갱신" style={{ padding: "8px 12px", borderRadius: 9, border: `1px solid ${src.auto ? C.teal : C.border}`, background: src.auto ? C.tealSoft : "transparent", color: src.auto ? C.teal : C.sub, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>⏰</button>
-        </div>
       </div>
     </div>
   );
@@ -411,21 +396,84 @@ function BackupModal({ sources, onImport, onClose, toast }: {
   );
 }
 
+// ─── 카드 ──────────────────────────────────────────────────────────────────────
+function SourceCard({ src, sync, active, onApply, onTarget, onSchedule, onEdit, onCopy, onDelete }: {
+  src: Source;
+  sync?: SyncResult;
+  active: boolean;
+  onApply: (s: Source) => void;
+  onTarget: (id: string, t: WallpaperTarget) => void;
+  onSchedule: (s: Source) => void;
+  onEdit: (s: Source) => void;
+  onCopy: (s: Source) => void;
+  onDelete: (s: Source) => void;
+}) {
+  const accent = teamColor(src);
+  const sl = syncLabel(sync);
+  const [bust, setBust] = useState(0);
+  const [imgLoading, setImgLoading] = useState(true);
+  const displaySrc = bust ? src.url + (src.url.includes("?") ? "&" : "?") + "_t=" + bust : src.url;
+  const refresh = () => { setImgLoading(true); setBust(Date.now()); };
+  const border = active ? accent : src.auto ? C.teal : "transparent";
+
+  return (
+    <div style={{ background: C.card, borderRadius: 16, overflow: "hidden", border: `1.5px solid ${border}`, boxShadow: active ? `0 8px 24px ${accent}44` : "none" }}>
+      <div style={{ position: "relative", paddingTop: "150%", background: C.surface }}>
+        <img key={displaySrc} src={displaySrc} alt={src.name} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }}
+          onLoad={(e) => { setImgLoading(false); (e.target as HTMLImageElement).style.opacity = "1"; }}
+          onError={(e) => { setImgLoading(false); (e.target as HTMLImageElement).style.opacity = "0.2"; }} />
+        {imgLoading && <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: C.muted, fontSize: 11 }}>불러오는 중…</div>}
+
+        <div style={{ position: "absolute", top: 8, left: 8, background: "rgba(0,0,0,0.6)", borderRadius: 6, padding: "2px 8px", fontSize: 9, fontWeight: 700, color: src.type === "kbo" ? accent : C.sub }}>
+          {src.type === "kbo" ? "KBO" : "URL"}
+        </div>
+        {active && <div style={{ position: "absolute", top: 8, left: 48, background: accent, borderRadius: 6, padding: "2px 8px", fontSize: 9, fontWeight: 800, color: "#fff" }}>✓ 적용중</div>}
+        {src.auto && (
+          <div style={{ position: "absolute", top: 8, right: 8, background: C.tealSoft, border: `1px solid ${C.teal}`, borderRadius: 6, padding: "2px 7px", fontSize: 9, fontWeight: 700, color: C.teal }}>
+            ⚡ {scheduleLabel(src.schedule)}
+          </div>
+        )}
+        <button onClick={refresh} title="미리보기 새로고침" style={{ position: "absolute", bottom: 8, left: 8, width: 28, height: 28, borderRadius: 8, background: "rgba(0,0,0,0.6)", border: "none", color: "#fff", cursor: "pointer", fontSize: 13 }}>↻</button>
+        <button onClick={() => onDelete(src)} title="삭제" style={{ position: "absolute", bottom: 8, right: 8, width: 28, height: 28, borderRadius: 8, background: "rgba(0,0,0,0.6)", border: "none", color: C.error, cursor: "pointer", fontSize: 12 }}>✕</button>
+      </div>
+
+      <div style={{ padding: "10px 12px 12px" }}>
+        <div style={{ color: C.text, fontSize: 13, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{src.name}</div>
+        <div style={{ color: C.muted, fontSize: 10, marginTop: 2 }}>{appliedLabel(src.lastApplied)}</div>
+        {sl && <div style={{ color: sl.color, fontSize: 10, marginTop: 2 }} title={sync && !sync.ok ? sync.error : undefined}>{sl.text}</div>}
+
+        <div style={{ margin: "8px 0" }}><TargetPicker value={src.target} onChange={(t) => onTarget(src.id, t)} /></div>
+
+        <div style={{ display: "flex", gap: 6 }}>
+          <button onClick={() => onApply(src)} style={{ flex: 1, padding: "8px 0", borderRadius: 9, border: "none", background: accent, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>지금 적용</button>
+          <button onClick={() => onSchedule(src)} title="자동 갱신" style={{ padding: "8px 11px", borderRadius: 9, border: `1px solid ${src.auto ? C.teal : C.border}`, background: src.auto ? C.tealSoft : "transparent", color: src.auto ? C.teal : C.sub, fontSize: 12, cursor: "pointer" }}>⏰</button>
+        </div>
+        <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+          <button onClick={() => onEdit(src)} style={ghostMini}>✎ 편집</button>
+          <button onClick={() => onCopy(src)} style={ghostMini}>⧉ URL</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── App ──────────────────────────────────────────────────────────────────────
 export default function App() {
   const [sources, setSources] = useState<Source[]>([]);
-  const [showAdd, setShowAdd] = useState(false);
+  const [editor, setEditor] = useState<{ editing: Source | null } | null>(null);
   const [showBackup, setShowBackup] = useState(false);
   const [schedFor, setSchedFor] = useState<Source | null>(null);
   const [toasts, setToasts] = useState<ToastMsg[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [battOk, setBattOk] = useState<boolean | null>(null);
   const [syncStatus, setSyncStatus] = useState<Record<string, SyncResult>>({});
+  const [activeId, setActiveId] = useState<string | null>(null);
 
   useEffect(() => {
     try {
       const raw = localStorage.getItem(STORE_KEY);
       if (raw) setSources(JSON.parse(raw));
+      setActiveId(localStorage.getItem(ACTIVE_KEY));
     } catch { /* ignore */ }
     setLoaded(true);
   }, []);
@@ -440,35 +488,27 @@ export default function App() {
       setSyncStatus(map);
     } catch { /* ignore */ }
   }, []);
-  useEffect(() => {
-    refreshSync();
-    const onVis = () => { if (document.visibilityState === "visible") refreshSync(); };
-    document.addEventListener("visibilitychange", onVis);
-    return () => document.removeEventListener("visibilitychange", onVis);
-  }, [refreshSync]);
 
-  // 배터리 최적화 예외 상태 확인 (설정에서 돌아올 때마다 재확인)
+  // 배터리 최적화 예외 상태 확인
   const checkBattery = useCallback(async () => {
     if (!native) return;
-    try {
-      const r = await Wallpaper.isIgnoringBatteryOptimizations();
-      setBattOk(r.ignoring);
-    } catch { /* ignore */ }
+    try { const r = await Wallpaper.isIgnoringBatteryOptimizations(); setBattOk(r.ignoring); } catch { /* ignore */ }
   }, []);
+
   useEffect(() => {
-    checkBattery();
-    const onVis = () => { if (document.visibilityState === "visible") checkBattery(); };
+    refreshSync(); checkBattery();
+    const onVis = () => { if (document.visibilityState === "visible") { refreshSync(); checkBattery(); } };
     document.addEventListener("visibilitychange", onVis);
     return () => document.removeEventListener("visibilitychange", onVis);
-  }, [checkBattery]);
-  useEffect(() => {
-    if (loaded) localStorage.setItem(STORE_KEY, JSON.stringify(sources));
-  }, [sources, loaded]);
+  }, [refreshSync, checkBattery]);
 
-  const toast = useCallback((msg: string, type: ToastMsg["type"] = "success") => {
+  useEffect(() => { if (loaded) localStorage.setItem(STORE_KEY, JSON.stringify(sources)); }, [sources, loaded]);
+  useEffect(() => { if (loaded) { if (activeId) localStorage.setItem(ACTIVE_KEY, activeId); else localStorage.removeItem(ACTIVE_KEY); } }, [activeId, loaded]);
+
+  const toast = useCallback((msg: string, type: ToastMsg["type"] = "success", action?: ToastAction) => {
     const id = uid();
-    setToasts((t) => [...t, { id, msg, type }]);
-    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 3200);
+    setToasts((t) => [...t, { id, msg, type, action }]);
+    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), action ? 5000 : 3200);
   }, []);
 
   const handleApply = async (s: Source) => {
@@ -476,10 +516,9 @@ export default function App() {
     try {
       await Wallpaper.apply({ url: s.url, target: s.target });
       setSources((p) => p.map((x) => (x.id === s.id ? { ...x, lastApplied: Date.now() } : x)));
+      setActiveId(s.id);
       toast("✓ 배경화면 적용됨");
-    } catch (e) {
-      toast((e as Error).message || "적용 실패", "error");
-    }
+    } catch (e) { toast((e as Error).message || "적용 실패", "error"); }
   };
 
   const handleTarget = async (id: string, target: WallpaperTarget) => {
@@ -487,9 +526,18 @@ export default function App() {
     // 자동 갱신이 켜진 소스라면 백그라운드 작업도 새 대상으로 재등록 (표시값=실제동작 일치)
     const s = sources.find((x) => x.id === id);
     if (native && s && s.auto && s.schedule) {
-      try {
-        await scheduleNative(id, s.url, target, s.schedule);
-      } catch { /* ignore */ }
+      try { await scheduleNative(id, s.url, target, s.schedule); } catch { /* ignore */ }
+    }
+  };
+
+  const handleEditorSubmit = async (s: Source) => {
+    const isEdit = !!sources.find((x) => x.id === s.id);
+    setSources((p) => (isEdit ? p.map((x) => (x.id === s.id ? s : x)) : [s, ...p]));
+    if (isEdit) {
+      if (native && s.auto && s.schedule) { try { await scheduleNative(s.id, s.url, s.target, s.schedule); } catch { /* ignore */ } }
+      toast(`✓ "${s.name}" 수정됨`);
+    } else {
+      toast(`✓ "${s.name}" 추가됨`);
     }
   };
 
@@ -501,16 +549,19 @@ export default function App() {
     try {
       if (auto && schedule) {
         await scheduleNative(id, s.url, s.target, schedule);
-        // 실패 알림을 받을 수 있도록 알림 권한 요청 (Android 13+)
         try { await Wallpaper.requestNotificationPermission(); } catch { /* ignore */ }
         toast("⏰ 자동 갱신 예약됨");
       } else {
         await Wallpaper.cancel({ id });
         toast("자동 갱신 해제됨", "warn");
       }
-    } catch (e) {
-      toast((e as Error).message || "예약 실패", "error");
-    }
+      refreshSync();
+    } catch (e) { toast((e as Error).message || "예약 실패", "error"); }
+  };
+
+  const handleCopy = async (s: Source) => {
+    try { await navigator.clipboard.writeText(s.url); toast("URL 복사됨"); }
+    catch { toast("복사 실패 — 길게 눌러 직접 복사하세요", "warn"); }
   };
 
   // 복원: 기존 예약을 모두 취소하고 가져온 목록으로 교체, 자동 소스는 재예약
@@ -526,13 +577,21 @@ export default function App() {
     setSources(imported);
   };
 
-  const handleDelete = async (id: string) => {
-    setSources((p) => p.filter((x) => x.id !== id));
-    if (native) { try { await Wallpaper.cancel({ id }); } catch { /* ignore */ } }
-    toast("삭제됨", "warn");
+  const handleDelete = (s: Source) => {
+    setSources((p) => p.filter((x) => x.id !== s.id));
+    if (activeId === s.id) setActiveId(null);
+    if (native) { Wallpaper.cancel({ id: s.id }).catch(() => {}); }
+    toast(`"${s.name}" 삭제됨`, "warn", {
+      label: "실행취소",
+      fn: () => {
+        setSources((p) => (p.find((x) => x.id === s.id) ? p : [s, ...p]));
+        if (native && s.auto && s.schedule) { scheduleNative(s.id, s.url, s.target, s.schedule).catch(() => {}); }
+      },
+    });
   };
 
   const autoCount = sources.filter((s) => s.auto).length;
+  const activeSrc = sources.find((s) => s.id === activeId) || null;
 
   return (
     <div style={{ minHeight: "100vh", background: C.bg, color: C.text, fontFamily: "'Segoe UI',-apple-system,'Noto Sans KR',sans-serif" }}>
@@ -546,15 +605,24 @@ export default function App() {
         {toasts.map((t) => (
           <div key={t.id} style={{
             background: t.type === "error" ? C.error : t.type === "warn" ? C.warn : C.success,
-            color: t.type === "warn" ? "#000" : "#fff", borderRadius: 10, padding: "10px 16px",
-            fontSize: 13, fontWeight: 600, boxShadow: "0 8px 28px rgba(0,0,0,0.5)", animation: "toastIn 0.25s ease", maxWidth: 300,
-          }}>{t.msg}</div>
+            color: t.type === "warn" ? "#000" : "#fff", borderRadius: 10, padding: "10px 14px",
+            fontSize: 13, fontWeight: 600, boxShadow: "0 8px 28px rgba(0,0,0,0.5)", animation: "toastIn 0.25s ease", maxWidth: 320,
+            display: "flex", alignItems: "center", gap: 12,
+          }}>
+            <span>{t.msg}</span>
+            {t.action && (
+              <button onClick={() => { t.action!.fn(); setToasts((p) => p.filter((x) => x.id !== t.id)); }}
+                style={{ background: "rgba(0,0,0,0.18)", border: "none", borderRadius: 7, padding: "4px 10px", color: "inherit", fontSize: 12, fontWeight: 800, cursor: "pointer", whiteSpace: "nowrap" }}>
+                {t.action.label}
+              </button>
+            )}
+          </div>
         ))}
       </div>
 
-      {showAdd && <AddModal onAdd={(s) => { setSources((p) => [s, ...p]); toast(`✓ "${s.name}" 추가됨`); }} onClose={() => setShowAdd(false)} />}
+      {editor && <Editor editing={editor.editing} onSubmit={handleEditorSubmit} onClose={() => setEditor(null)} />}
       {showBackup && <BackupModal sources={sources} onImport={handleImport} onClose={() => setShowBackup(false)} toast={toast} />}
-      {schedFor && <ScheduleModal src={schedFor} onSave={(auto, s) => handleSchedSave(schedFor.id, auto, s)} onClose={() => setSchedFor(null)} />}
+      {schedFor && <ScheduleModal src={schedFor} onSave={(auto, s) => handleSchedSave(schedFor.id, auto, s)} onTest={() => handleApply(schedFor)} onClose={() => setSchedFor(null)} />}
 
       <div style={{ maxWidth: 760, margin: "0 auto", padding: "24px 18px 60px" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8, flexWrap: "wrap", gap: 10 }}>
@@ -565,7 +633,7 @@ export default function App() {
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             {autoCount > 0 && <div style={{ padding: "6px 12px", borderRadius: 10, background: C.tealSoft, border: `1px solid ${C.teal}`, color: C.teal, fontSize: 12, fontWeight: 700 }}>⚡ {autoCount}개 자동</div>}
             {sources.length > 0 && <button onClick={() => setShowBackup(true)} title="백업 / 복원" style={{ background: "transparent", border: `1px solid ${C.border}`, borderRadius: 11, padding: "9px 14px", color: C.sub, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>⤓ 백업</button>}
-            <button onClick={() => setShowAdd(true)} style={{ background: `linear-gradient(135deg,${C.accent},#7C3AED)`, border: "none", borderRadius: 11, padding: "9px 18px", color: "white", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>+ 추가</button>
+            <button onClick={() => setEditor({ editing: null })} style={{ background: `linear-gradient(135deg,${C.accent},#7C3AED)`, border: "none", borderRadius: 11, padding: "9px 18px", color: "white", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>+ 추가</button>
           </div>
         </div>
 
@@ -583,13 +651,9 @@ export default function App() {
             </div>
             <div style={{ display: "flex", gap: 8 }}>
               <button onClick={async () => { try { await Wallpaper.requestIgnoreBatteryOptimizations(); } catch { /* */ } }}
-                style={{ padding: "8px 16px", borderRadius: 9, border: "none", background: C.warn, color: "#000", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
-                해제하기
-              </button>
+                style={{ padding: "8px 16px", borderRadius: 9, border: "none", background: C.warn, color: "#000", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>해제하기</button>
               <button onClick={async () => { try { await Wallpaper.openBatterySettings(); } catch { /* */ } }}
-                style={{ padding: "8px 14px", borderRadius: 9, border: `1px solid ${C.border}`, background: "transparent", color: C.sub, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
-                수동 설정
-              </button>
+                style={{ padding: "8px 14px", borderRadius: 9, border: `1px solid ${C.border}`, background: "transparent", color: C.sub, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>수동 설정</button>
             </div>
           </div>
         )}
@@ -597,6 +661,18 @@ export default function App() {
         {native && battOk === true && (
           <div style={{ margin: "12px 0 4px", padding: "8px 12px", borderRadius: 10, background: C.tealSoft, border: `1px solid ${C.teal}`, color: C.teal, fontSize: 11, fontWeight: 600 }}>
             ✓ 배터리 최적화 해제됨 — 백그라운드 자동 갱신 안정 동작
+          </div>
+        )}
+
+        {/* 현재 적용 중 */}
+        {activeSrc && (
+          <div style={{ display: "flex", gap: 12, alignItems: "center", margin: "14px 0 4px", padding: 12, borderRadius: 14, background: C.surface, border: `1px solid ${teamColor(activeSrc)}55` }}>
+            <img src={activeSrc.url} alt="" style={{ width: 46, height: 82, objectFit: "cover", borderRadius: 8, border: `1px solid ${C.border}`, flexShrink: 0 }} onError={(e) => { (e.target as HTMLImageElement).style.opacity = "0.2"; }} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 10, color: C.muted, letterSpacing: 1, fontWeight: 700 }}>현재 적용 중</div>
+              <div style={{ fontSize: 15, fontWeight: 800, color: teamColor(activeSrc), overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{activeSrc.name}</div>
+              <div style={{ fontSize: 11, color: C.sub }}>{appliedLabel(activeSrc.lastApplied)} · {targetLabel(activeSrc.target)}</div>
+            </div>
           </div>
         )}
 
@@ -610,7 +686,9 @@ export default function App() {
           ) : (
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 14 }}>
               {sources.map((s) => (
-                <SourceCard key={s.id} src={s} sync={syncStatus[s.id]} onApply={handleApply} onTarget={handleTarget} onSchedule={(x) => setSchedFor(x)} onDelete={handleDelete} />
+                <SourceCard key={s.id} src={s} sync={syncStatus[s.id]} active={s.id === activeId}
+                  onApply={handleApply} onTarget={handleTarget} onSchedule={(x) => setSchedFor(x)}
+                  onEdit={(x) => setEditor({ editing: x })} onCopy={handleCopy} onDelete={handleDelete} />
               ))}
             </div>
           )}
