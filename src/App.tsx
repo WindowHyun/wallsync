@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { Capacitor } from "@capacitor/core";
 import { Wallpaper, WallpaperTarget, SyncResult } from "./wallpaper";
+import { scheduleGameNotifications, cancelGameNotifications } from "./notifications";
 
 // ─── 테마 ──────────────────────────────────────────────────────────────────────
 const C = {
@@ -104,6 +105,10 @@ function syncLabel(r: SyncResult | undefined): { text: string; color: string } |
 
 const STORE_KEY = "wallsync.sources.v1";
 const ACTIVE_KEY = "wallsync.active.v1";
+const NOTIF_KEY = "wallsync.notif.v1";
+
+interface NotifSettings { enabled: boolean; team: string; lead: number }
+const leadLabel = (m: number) => (m < 60 ? `${m}분` : m % 60 === 0 ? `${m / 60}시간` : `${Math.floor(m / 60)}시간 ${m % 60}분`);
 
 interface ToastAction { label: string; fn: () => void }
 interface ToastMsg { id: string; msg: string; type: "success" | "error" | "warn"; action?: ToastAction }
@@ -324,6 +329,59 @@ function ScheduleModal({ src, onSave, onTest, onClose }: { src: Source; onSave: 
   );
 }
 
+// ─── 경기 알림 모달 ────────────────────────────────────────────────────────────────
+function NotifModal({ settings, onSave, onClose }: { settings: NotifSettings; onSave: (s: NotifSettings) => void; onClose: () => void }) {
+  const [enabled, setEnabled] = useState(settings.enabled);
+  const [team, setTeam] = useState(settings.team);
+  const [lead, setLead] = useState(settings.lead);
+  return (
+    <div onClick={(e) => { if (e.target === e.currentTarget) onClose(); }} style={{
+      position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 200,
+      display: "flex", alignItems: "center", justifyContent: "center", padding: 16,
+    }}>
+      <div style={{ background: C.card, borderRadius: 20, padding: 26, width: "100%", maxWidth: 380, border: `1px solid ${C.border}` }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
+          <h3 style={{ margin: 0, fontSize: 17, fontWeight: 700 }}>🔔 경기 알림</h3>
+          <button onClick={onClose} style={{ background: "none", border: "none", color: C.sub, cursor: "pointer", fontSize: 18 }}>✕</button>
+        </div>
+
+        <div onClick={() => setEnabled((v) => !v)} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18, cursor: "pointer" }}>
+          <div style={{ width: 40, height: 22, borderRadius: 11, background: enabled ? C.accent : C.border, position: "relative", flexShrink: 0 }}>
+            <div style={{ position: "absolute", top: 3, left: enabled ? 21 : 3, width: 16, height: 16, borderRadius: "50%", background: "white", transition: "left 0.2s" }} />
+          </div>
+          <span style={{ fontSize: 14, color: enabled ? C.text : C.sub, fontWeight: 600 }}>경기 시작 전 알림 {enabled ? "켜짐" : "꺼짐"}</span>
+        </div>
+
+        <div style={{ opacity: enabled ? 1 : 0.4, pointerEvents: enabled ? "auto" : "none" }}>
+          <Lbl>응원팀</Lbl>
+          <select value={team} onChange={(e) => setTeam(e.target.value)} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 9, padding: "9px 10px", color: C.text, fontSize: 13, width: "100%", marginBottom: 14 }}>
+            {TEAMS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          </select>
+          <Lbl>알림 시점 (경기 시작 전)</Lbl>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            {[30, 60, 120, 180].map((m) => (
+              <button key={m} onClick={() => setLead(m)} style={{
+                padding: "7px 14px", borderRadius: 8,
+                border: `1.5px solid ${lead === m ? C.accent : C.border}`,
+                background: lead === m ? C.accentSoft : "transparent",
+                color: lead === m ? C.text : C.sub, fontSize: 13, fontWeight: 600, cursor: "pointer",
+              }}>{leadLabel(m)}</button>
+            ))}
+          </div>
+          <div style={{ marginTop: 12, fontSize: 11, color: C.muted, lineHeight: 1.5 }}>
+            ※ 앱을 열 때 다가오는 경기 기준으로 다시 예약됩니다. 일정 출처: KBO 공식.
+          </div>
+        </div>
+
+        <button onClick={() => { onSave({ enabled, team, lead }); onClose(); }} style={{
+          width: "100%", marginTop: 20, background: `linear-gradient(135deg,${C.accent},#7C3AED)`,
+          border: "none", borderRadius: 12, padding: 12, color: "white", fontSize: 14, fontWeight: 700, cursor: "pointer",
+        }}>저장</button>
+      </div>
+    </div>
+  );
+}
+
 // ─── 백업/복원 모달 ─────────────────────────────────────────────────────────────────
 function BackupModal({ sources, onImport, onClose, toast }: {
   sources: Source[];
@@ -468,15 +526,27 @@ export default function App() {
   const [battOk, setBattOk] = useState<boolean | null>(null);
   const [syncStatus, setSyncStatus] = useState<Record<string, SyncResult>>({});
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [showNotif, setShowNotif] = useState(false);
+  const [notif, setNotif] = useState<NotifSettings>({ enabled: false, team: "KIA", lead: 60 });
 
   useEffect(() => {
     try {
       const raw = localStorage.getItem(STORE_KEY);
       if (raw) setSources(JSON.parse(raw));
       setActiveId(localStorage.getItem(ACTIVE_KEY));
+      const n = localStorage.getItem(NOTIF_KEY);
+      if (n) setNotif(JSON.parse(n));
     } catch { /* ignore */ }
     setLoaded(true);
   }, []);
+
+  // 앱을 열 때 알림이 켜져 있으면 다가오는 경기로 다시 예약
+  useEffect(() => {
+    if (loaded && native && notif.enabled) {
+      scheduleGameNotifications(notif.team, notif.lead).catch(() => {});
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded]);
 
   // 자동 갱신 결과 이력 조회 (앱 진입/포그라운드 복귀 시)
   const refreshSync = useCallback(async () => {
@@ -504,6 +574,21 @@ export default function App() {
 
   useEffect(() => { if (loaded) localStorage.setItem(STORE_KEY, JSON.stringify(sources)); }, [sources, loaded]);
   useEffect(() => { if (loaded) { if (activeId) localStorage.setItem(ACTIVE_KEY, activeId); else localStorage.removeItem(ACTIVE_KEY); } }, [activeId, loaded]);
+
+  const saveNotif = async (next: NotifSettings) => {
+    setNotif(next);
+    localStorage.setItem(NOTIF_KEY, JSON.stringify(next));
+    if (!native) { toast("알림은 설치된 앱에서만 동작합니다", "warn"); return; }
+    try {
+      if (next.enabled) {
+        const n = await scheduleGameNotifications(next.team, next.lead);
+        toast(n > 0 ? `🔔 경기 알림 ${n}건 예약됨` : "다가오는 경기가 없습니다", n > 0 ? "success" : "warn");
+      } else {
+        await cancelGameNotifications();
+        toast("경기 알림 해제됨", "warn");
+      }
+    } catch (e) { toast((e as Error).message || "알림 예약 실패", "error"); }
+  };
 
   const toast = useCallback((msg: string, type: ToastMsg["type"] = "success", action?: ToastAction) => {
     const id = uid();
@@ -621,6 +706,7 @@ export default function App() {
       </div>
 
       {editor && <Editor editing={editor.editing} onSubmit={handleEditorSubmit} onClose={() => setEditor(null)} />}
+      {showNotif && <NotifModal settings={notif} onSave={saveNotif} onClose={() => setShowNotif(false)} />}
       {showBackup && <BackupModal sources={sources} onImport={handleImport} onClose={() => setShowBackup(false)} toast={toast} />}
       {schedFor && <ScheduleModal src={schedFor} onSave={(auto, s) => handleSchedSave(schedFor.id, auto, s)} onTest={() => handleApply(schedFor)} onClose={() => setSchedFor(null)} />}
 
@@ -632,6 +718,7 @@ export default function App() {
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             {autoCount > 0 && <div style={{ padding: "6px 12px", borderRadius: 10, background: C.tealSoft, border: `1px solid ${C.teal}`, color: C.teal, fontSize: 12, fontWeight: 700 }}>⚡ {autoCount}개 자동</div>}
+            <button onClick={() => setShowNotif(true)} title="경기 알림" style={{ background: notif.enabled ? C.tealSoft : "transparent", border: `1px solid ${notif.enabled ? C.teal : C.border}`, borderRadius: 11, padding: "9px 12px", color: notif.enabled ? C.teal : C.sub, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>🔔</button>
             {sources.length > 0 && <button onClick={() => setShowBackup(true)} title="백업 / 복원" style={{ background: "transparent", border: `1px solid ${C.border}`, borderRadius: 11, padding: "9px 14px", color: C.sub, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>⤓ 백업</button>}
             <button onClick={() => setEditor({ editing: null })} style={{ background: `linear-gradient(135deg,${C.accent},#7C3AED)`, border: "none", borderRadius: 11, padding: "9px 18px", color: "white", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>+ 추가</button>
           </div>
