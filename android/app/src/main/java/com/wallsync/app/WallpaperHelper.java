@@ -19,6 +19,11 @@ public final class WallpaperHelper {
 
     private WallpaperHelper() {}
 
+    /** 재시도해도 해결되지 않는 영구 오류 (4xx, 디코드 실패 등) — 워커가 재시도를 포기하는 기준. */
+    public static class PermanentException extends IOException {
+        public PermanentException(String message) { super(message); }
+    }
+
     /** 다운로드 응답 크기 상한 (메모리 보호). */
     private static final long MAX_DOWNLOAD_BYTES = 64L * 1024 * 1024;
 
@@ -43,7 +48,7 @@ public final class WallpaperHelper {
 
         Bitmap bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.length, opts);
         if (bitmap == null) {
-            throw new IOException("이미지를 디코드할 수 없습니다");
+            throw new PermanentException("이미지를 디코드할 수 없습니다");
         }
 
         int which;
@@ -74,6 +79,10 @@ public final class WallpaperHelper {
             conn.connect();
 
             int code = conn.getResponseCode();
+            if (code >= 400 && code < 500) {
+                // 404 등 클라이언트 오류는 재시도해도 해결되지 않음
+                throw new PermanentException("HTTP " + code);
+            }
             if (code < 200 || code >= 300) {
                 throw new IOException("HTTP " + code);
             }
@@ -87,7 +96,7 @@ public final class WallpaperHelper {
                 total += n;
                 // 비정상적으로 큰 응답은 메모리 보호를 위해 중단 (상한 64MB)
                 if (total > MAX_DOWNLOAD_BYTES) {
-                    throw new IOException("이미지가 너무 큽니다 (>64MB)");
+                    throw new PermanentException("이미지가 너무 큽니다 (>64MB)");
                 }
                 buffer.write(chunk, 0, n);
             }

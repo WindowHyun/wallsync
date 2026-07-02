@@ -2,90 +2,19 @@ import { useState, useEffect, useCallback } from "react";
 import { Capacitor } from "@capacitor/core";
 import { Wallpaper, WallpaperTarget, SyncResult } from "./wallpaper";
 import { scheduleGameNotifications, cancelGameNotifications } from "./notifications";
+import { Source, Schedule, NotifSettings, BackupExtra, ToastMsg, ToastAction } from "./types";
+import { C, teamColor } from "./theme";
+import { rel, targetLabel } from "./lib/format";
+import { resolveActive } from "./lib/active";
+import { uid } from "./lib/uid";
+import * as store from "./storage";
+import { Editor } from "./components/Editor";
+import { ScheduleModal } from "./components/ScheduleModal";
+import { NotifModal } from "./components/NotifModal";
+import { BackupModal } from "./components/BackupModal";
+import { SourceCard } from "./components/SourceCard";
 
-// ─── 테마 ──────────────────────────────────────────────────────────────────────
-const C = {
-  bg: "#08080F", surface: "#111118", card: "#18181F", cardHover: "#1E1E28",
-  border: "#26263A", accent: "#5B4FE8", accentSoft: "rgba(91,79,232,0.18)",
-  teal: "#00C9A7", tealSoft: "rgba(0,201,167,0.15)",
-  text: "#EEEEF5", sub: "#9898B8", muted: "#55557A",
-  success: "#22C55E", error: "#EF4444", warn: "#F59E0B",
-};
-
-const KBO_BASE = "https://kbo-wallpaper.vercel.app/api/wallpaper";
-
-// 구단별 대표색 (다크 배경에서 잘 보이도록 보정)
-const TEAM_COLORS: Record<string, string> = {
-  KIA: "#E4002B", SAMSUNG: "#2E6CC4", LG: "#D6004E", DOOSAN: "#3A4D8F",
-  SSG: "#E81E33", LOTTE: "#2D5BA8", HANWHA: "#FF7A1A", NC: "#3D6CB0",
-  KIWOOM: "#A8324E", KT: "#5A6270",
-};
-
-// ─── 타입 ──────────────────────────────────────────────────────────────────────
-type Schedule =
-  | { kind: "interval"; hours: number }
-  | { kind: "daily"; hour: number; minute: number };
-
-interface KboConfig { team: string; style: string; mode: string; res: string }
-
-interface Source {
-  id: string;
-  name: string;
-  type: "url" | "kbo";
-  url: string;
-  target: WallpaperTarget;
-  kbo?: KboConfig;
-  auto: boolean;
-  schedule: Schedule | null;
-  addedAt: number;
-  lastApplied: number | null;
-}
-
-const teamColor = (s: Source) =>
-  (s.type === "kbo" && s.kbo && TEAM_COLORS[s.kbo.team]) || C.accent;
-
-// ─── KBO 빌더 옵션 ───────────────────────────────────────────────────────────────
-const TEAMS = [
-  ["KIA", "KIA 타이거즈"], ["SAMSUNG", "삼성 라이온즈"], ["LG", "LG 트윈스"],
-  ["DOOSAN", "두산 베어스"], ["SSG", "SSG 랜더스"], ["LOTTE", "롯데 자이언츠"],
-  ["HANWHA", "한화 이글스"], ["NC", "NC 다이노스"], ["KIWOOM", "키움 히어로즈"], ["KT", "KT 위즈"],
-];
-const STYLES = [
-  ["minimal", "미니멀"], ["mascot", "마스코트"], ["brutal", "브루탈"], ["nighter", "나이터"],
-  ["sketch", "스케치"], ["newspaper", "신문"], ["bento", "벤토"], ["kpop-card", "K-POP 카드"],
-  ["led-scoreboard", "전광판"], ["grass", "잔디"], ["dots", "도트"], ["diamond", "다이아몬드"], ["list", "리스트"],
-];
-const MODES = [["dark", "다크"], ["light", "라이트"]];
-const RES = [
-  ["android-fhd", "안드로이드 FHD (1080×2400)"], ["android-qhd", "안드로이드 QHD (1440×3120)"],
-  ["iphone-15-pro", "아이폰 15 Pro"], ["iphone-15-pro-max", "아이폰 15 Pro Max"],
-  ["iphone-17", "아이폰 17"], ["iphone-17-pro-max", "아이폰 17 Pro Max"], ["iphone-se", "아이폰 SE"],
-];
-
-const buildKboUrl = (k: KboConfig) =>
-  `${KBO_BASE}?team=${encodeURIComponent(k.team)}&style=${k.style}&mode=${k.mode}&res=${k.res}`;
-
-const uid = () =>
-  typeof crypto !== "undefined" && "randomUUID" in crypto
-    ? crypto.randomUUID()
-    : Math.random().toString(36).slice(2, 9);
 const native = Capacitor.isNativePlatform();
-
-function rel(ts: number) {
-  const d = Date.now() - ts;
-  if (d < 60000) return "방금 전";
-  if (d < 3600000) return `${Math.floor(d / 60000)}분 전`;
-  if (d < 86400000) return `${Math.floor(d / 3600000)}시간 전`;
-  return `${Math.floor(d / 86400000)}일 전`;
-}
-const appliedLabel = (ts: number | null) => (ts ? `${rel(ts)} 적용` : "미적용");
-const targetLabel = (t: WallpaperTarget) => (t === "home" ? "홈" : t === "lock" ? "잠금" : "홈+잠금");
-
-function scheduleLabel(s: Schedule | null) {
-  if (!s) return "";
-  if (s.kind === "interval") return `${s.hours}시간마다`;
-  return `매일 ${String(s.hour).padStart(2, "0")}:${String(s.minute).padStart(2, "0")}`;
-}
 
 // 네이티브 예약 등록 (interval/daily). daily는 네이티브가 매 실행마다 다음 정시를
 // 스스로 재예약하므로 시각이 드리프트되지 않는다.
@@ -96,440 +25,9 @@ function scheduleNative(id: string, url: string, target: WallpaperTarget, s: Sch
   return Wallpaper.schedule({ id, url, target, mode: "daily", dailyHour: s.hour, dailyMinute: s.minute });
 }
 
-// 자동 갱신 마지막 결과 라벨
-function syncLabel(r: SyncResult | undefined): { text: string; color: string } | null {
-  if (!r) return null;
-  if (r.ok) return { text: `자동 갱신 ✓ ${rel(r.time)}`, color: C.success };
-  return { text: "자동 갱신 ✗ 실패", color: C.error };
-}
-
-const STORE_KEY = "wallsync.sources.v1";
-const ACTIVE_KEY = "wallsync.active.v1";
-const NOTIF_KEY = "wallsync.notif.v1";
-
-interface NotifSettings { enabled: boolean; team: string; lead: number }
-const leadLabel = (m: number) => (m < 60 ? `${m}분` : m % 60 === 0 ? `${m / 60}시간` : `${Math.floor(m / 60)}시간 ${m % 60}분`);
-
-interface ToastAction { label: string; fn: () => void }
-interface ToastMsg { id: string; msg: string; type: "success" | "error" | "warn"; action?: ToastAction }
-
-const ghostMini: React.CSSProperties = {
-  flex: 1, padding: "6px 0", borderRadius: 8, border: `1px solid ${C.border}`,
-  background: "transparent", color: C.sub, fontSize: 11, fontWeight: 600, cursor: "pointer",
-};
-
-// ─── 작은 컴포넌트 ────────────────────────────────────────────────────────────────
-function Lbl({ children }: { children: React.ReactNode }) {
-  return <label style={{ fontSize: 11, color: C.sub, fontWeight: 600, display: "block", marginBottom: 5 }}>{children}</label>;
-}
-
-function TargetPicker({ value, onChange }: { value: WallpaperTarget; onChange: (t: WallpaperTarget) => void }) {
-  const opts: [WallpaperTarget, string][] = [["home", "홈"], ["lock", "잠금"], ["both", "둘 다"]];
-  return (
-    <div style={{ display: "flex", gap: 6 }}>
-      {opts.map(([v, l]) => (
-        <button key={v} onClick={() => onChange(v)} style={{
-          flex: 1, padding: "7px 0", borderRadius: 8,
-          border: `1.5px solid ${value === v ? C.accent : C.border}`,
-          background: value === v ? C.accentSoft : "transparent",
-          color: value === v ? C.text : C.sub, fontSize: 12, fontWeight: 600, cursor: "pointer",
-        }}>{l}</button>
-      ))}
-    </div>
-  );
-}
-
-// ─── 추가/편집 모달 ────────────────────────────────────────────────────────────────
-function Editor({ editing, onSubmit, onClose }: { editing: Source | null; onSubmit: (s: Source) => void; onClose: () => void }) {
-  const [tab, setTab] = useState<"kbo" | "url">(editing?.type ?? "kbo");
-  const [name, setName] = useState(editing?.name ?? "");
-  const [url, setUrl] = useState(editing && editing.type === "url" ? editing.url : "");
-  const [target, setTarget] = useState<WallpaperTarget>(editing?.target ?? "both");
-  const [kbo, setKbo] = useState<KboConfig>(editing?.kbo ?? { team: "KIA", style: "minimal", mode: "dark", res: "android-fhd" });
-
-  const resolvedUrl = tab === "kbo" ? buildKboUrl(kbo) : url.trim();
-  const teamLabelTxt = TEAMS.find((t) => t[0] === kbo.team)?.[1] ?? kbo.team;
-  const defaultName = tab === "kbo" ? teamLabelTxt : "내 배경화면";
-
-  const submit = () => {
-    if (!resolvedUrl) return;
-    if (editing) {
-      onSubmit({ ...editing, name: name.trim() || defaultName, type: tab, url: resolvedUrl, target, kbo: tab === "kbo" ? kbo : undefined });
-    } else {
-      onSubmit({
-        id: uid(), name: name.trim() || defaultName, type: tab, url: resolvedUrl, target,
-        kbo: tab === "kbo" ? kbo : undefined, auto: false, schedule: null, addedAt: Date.now(), lastApplied: null,
-      });
-    }
-    onClose();
-  };
-
-  const sel = (value: string, onChange: (v: string) => void, opts: string[][]) => (
-    <select value={value} onChange={(e) => onChange(e.target.value)} style={{
-      background: C.surface, border: `1px solid ${C.border}`, borderRadius: 9,
-      padding: "9px 10px", color: C.text, fontSize: 13, width: "100%",
-    }}>
-      {opts.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-    </select>
-  );
-
-  return (
-    <div onClick={(e) => { if (e.target === e.currentTarget) onClose(); }} style={{
-      position: "fixed", inset: 0, background: "rgba(0,0,0,0.8)", zIndex: 200,
-      display: "flex", alignItems: "center", justifyContent: "center", padding: 16,
-    }}>
-      <div style={{ background: C.card, borderRadius: 22, padding: 24, width: "100%", maxWidth: 460, border: `1px solid ${C.border}`, maxHeight: "92vh", overflowY: "auto" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
-          <h3 style={{ margin: 0, fontSize: 18, fontWeight: 800 }}>{editing ? "배경화면 편집" : "배경화면 추가"}</h3>
-          <button onClick={onClose} style={{ background: "none", border: "none", color: C.sub, cursor: "pointer", fontSize: 20 }}>✕</button>
-        </div>
-
-        <div style={{ display: "flex", gap: 6, marginBottom: 18, background: C.surface, borderRadius: 12, padding: 4 }}>
-          {[["kbo", "⚾ KBO 빌더"], ["url", "🔗 직접 URL"]].map(([k, l]) => (
-            <button key={k} onClick={() => setTab(k as "kbo" | "url")} style={{
-              flex: 1, padding: "9px 4px", borderRadius: 9,
-              background: tab === k ? C.card : "transparent",
-              border: tab === k ? `1px solid ${C.border}` : "1px solid transparent",
-              color: tab === k ? C.text : C.sub, fontSize: 13, fontWeight: 600, cursor: "pointer",
-            }}>{l}</button>
-          ))}
-        </div>
-
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          {tab === "kbo" ? (
-            <>
-              <div style={{ display: "flex", gap: 10 }}>
-                <div style={{ flex: 1 }}><Lbl>구단</Lbl>{sel(kbo.team, (v) => setKbo({ ...kbo, team: v }), TEAMS)}</div>
-                <div style={{ flex: 1 }}><Lbl>스타일</Lbl>{sel(kbo.style, (v) => setKbo({ ...kbo, style: v }), STYLES)}</div>
-              </div>
-              <div style={{ display: "flex", gap: 10 }}>
-                <div style={{ flex: 1 }}><Lbl>모드</Lbl>{sel(kbo.mode, (v) => setKbo({ ...kbo, mode: v }), MODES)}</div>
-                <div style={{ flex: 1.4 }}><Lbl>해상도</Lbl>{sel(kbo.res, (v) => setKbo({ ...kbo, res: v }), RES)}</div>
-              </div>
-              <div style={{ fontSize: 11, color: C.muted, background: C.surface, borderRadius: 8, padding: "8px 10px", lineHeight: 1.5 }}>
-                💡 연·월이 없는 URL이라 <b style={{ color: C.teal }}>매일 최신 결과·매달 새 달력</b>으로 자동 갱신됩니다.
-              </div>
-            </>
-          ) : (
-            <div>
-              <Lbl>이미지 URL *</Lbl>
-              <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://example.com/image.png"
-                style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 9, padding: "9px 12px", color: C.text, fontSize: 13, width: "100%" }} />
-            </div>
-          )}
-
-          <div><Lbl>이름</Lbl>
-            <input value={name} onChange={(e) => setName(e.target.value)} placeholder={defaultName}
-              style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 9, padding: "9px 12px", color: C.text, fontSize: 13, width: "100%" }} />
-          </div>
-
-          <div><Lbl>적용 대상</Lbl><TargetPicker value={target} onChange={setTarget} /></div>
-
-          {resolvedUrl && (
-            <div style={{ display: "flex", justifyContent: "center", marginTop: 4 }}>
-              <img src={resolvedUrl} alt="preview" style={{ width: 120, height: 213, objectFit: "cover", borderRadius: 14, border: `1px solid ${C.border}`, background: C.surface }}
-                onLoad={(e) => { (e.target as HTMLImageElement).style.opacity = "1"; }}
-                onError={(e) => { (e.target as HTMLImageElement).style.opacity = "0.25"; }} />
-            </div>
-          )}
-        </div>
-
-        <button onClick={submit} disabled={!resolvedUrl} style={{
-          width: "100%", marginTop: 18, opacity: resolvedUrl ? 1 : 0.4,
-          background: `linear-gradient(135deg,${C.accent},#7C3AED)`, border: "none",
-          borderRadius: 13, padding: 13, color: "white", fontSize: 14, fontWeight: 700, cursor: "pointer",
-        }}>{editing ? "저장" : "+ 추가하기"}</button>
-      </div>
-    </div>
-  );
-}
-
-// ─── 예약 모달 ────────────────────────────────────────────────────────────────────
-function ScheduleModal({ src, onSave, onTest, onClose }: { src: Source; onSave: (auto: boolean, s: Schedule | null) => void; onTest: () => void; onClose: () => void }) {
-  const [enabled, setEnabled] = useState(src.auto);
-  const [kind, setKind] = useState<"interval" | "daily">(src.schedule?.kind ?? "interval");
-  const [hours, setHours] = useState(src.schedule?.kind === "interval" ? src.schedule.hours : 6);
-  const [hour, setHour] = useState(src.schedule?.kind === "daily" ? src.schedule.hour : 8);
-  const [minute, setMinute] = useState(src.schedule?.kind === "daily" ? src.schedule.minute : 0);
-
-  const save = () => {
-    if (!enabled) { onSave(false, null); onClose(); return; }
-    const s: Schedule = kind === "interval" ? { kind, hours } : { kind: "daily", hour, minute };
-    onSave(true, s);
-    onClose();
-  };
-
-  return (
-    <div onClick={(e) => { if (e.target === e.currentTarget) onClose(); }} style={{
-      position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 200,
-      display: "flex", alignItems: "center", justifyContent: "center", padding: 16,
-    }}>
-      <div style={{ background: C.card, borderRadius: 20, padding: 26, width: "100%", maxWidth: 380, border: `1px solid ${C.border}` }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
-          <h3 style={{ margin: 0, fontSize: 17, fontWeight: 700 }}>⏰ 자동 갱신 설정</h3>
-          <button onClick={onClose} style={{ background: "none", border: "none", color: C.sub, cursor: "pointer", fontSize: 18 }}>✕</button>
-        </div>
-
-        <div onClick={() => setEnabled((v) => !v)} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18, cursor: "pointer" }}>
-          <div style={{ width: 40, height: 22, borderRadius: 11, background: enabled ? C.accent : C.border, position: "relative", flexShrink: 0 }}>
-            <div style={{ position: "absolute", top: 3, left: enabled ? 21 : 3, width: 16, height: 16, borderRadius: "50%", background: "white", transition: "left 0.2s" }} />
-          </div>
-          <span style={{ fontSize: 14, color: enabled ? C.text : C.sub, fontWeight: 600 }}>자동 갱신 {enabled ? "켜짐" : "꺼짐"}</span>
-        </div>
-
-        <div style={{ opacity: enabled ? 1 : 0.4, pointerEvents: enabled ? "auto" : "none" }}>
-          <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-            {[["interval", "⏱ 반복 주기"], ["daily", "🌅 매일 특정 시간"]].map(([v, l]) => (
-              <button key={v} onClick={() => setKind(v as "interval" | "daily")} style={{
-                flex: 1, padding: "9px 0", borderRadius: 10,
-                border: `1.5px solid ${kind === v ? C.accent : C.border}`,
-                background: kind === v ? C.accentSoft : "transparent",
-                color: kind === v ? C.text : C.sub, fontSize: 12, fontWeight: 600, cursor: "pointer",
-              }}>{l}</button>
-            ))}
-          </div>
-
-          {kind === "interval" ? (
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-              {[1, 2, 3, 4, 6, 8, 12, 24].map((h) => (
-                <button key={h} onClick={() => setHours(h)} style={{
-                  padding: "7px 14px", borderRadius: 8,
-                  border: `1.5px solid ${hours === h ? C.accent : C.border}`,
-                  background: hours === h ? C.accentSoft : "transparent",
-                  color: hours === h ? C.text : C.sub, fontSize: 13, fontWeight: 600, cursor: "pointer",
-                }}>{h}h</button>
-              ))}
-            </div>
-          ) : (
-            <div style={{ display: "flex", gap: 10 }}>
-              <select value={hour} onChange={(e) => setHour(+e.target.value)} style={{ flex: 1, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 10px", color: C.text, fontSize: 14 }}>
-                {Array.from({ length: 24 }, (_, i) => i).map((h) => <option key={h} value={h}>{String(h).padStart(2, "0")}시</option>)}
-              </select>
-              <select value={minute} onChange={(e) => setMinute(+e.target.value)} style={{ flex: 1, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 10px", color: C.text, fontSize: 14 }}>
-                {[0, 10, 15, 20, 30, 45].map((m) => <option key={m} value={m}>{String(m).padStart(2, "0")}분</option>)}
-              </select>
-            </div>
-          )}
-          <div style={{ marginTop: 12, fontSize: 11, color: C.muted, lineHeight: 1.5 }}>
-            ※ 안드로이드 정책상 최소 간격은 15분이며, 배터리 절약 상태에 따라 실제 실행은 다소 지연될 수 있습니다.
-          </div>
-        </div>
-
-        <button onClick={onTest} style={{
-          width: "100%", marginTop: 16, background: "transparent", border: `1px solid ${C.teal}`,
-          borderRadius: 12, padding: 11, color: C.teal, fontSize: 13, fontWeight: 700, cursor: "pointer",
-        }}>⚡ 지금 한 번 적용 테스트</button>
-
-        <button onClick={save} style={{
-          width: "100%", marginTop: 10, background: `linear-gradient(135deg,${C.accent},#7C3AED)`,
-          border: "none", borderRadius: 12, padding: 12, color: "white", fontSize: 14, fontWeight: 700, cursor: "pointer",
-        }}>저장</button>
-      </div>
-    </div>
-  );
-}
-
-// ─── 경기 알림 모달 ────────────────────────────────────────────────────────────────
-function NotifModal({ settings, onSave, onClose }: { settings: NotifSettings; onSave: (s: NotifSettings) => void; onClose: () => void }) {
-  const [enabled, setEnabled] = useState(settings.enabled);
-  const [team, setTeam] = useState(settings.team);
-  const [lead, setLead] = useState(settings.lead);
-  return (
-    <div onClick={(e) => { if (e.target === e.currentTarget) onClose(); }} style={{
-      position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 200,
-      display: "flex", alignItems: "center", justifyContent: "center", padding: 16,
-    }}>
-      <div style={{ background: C.card, borderRadius: 20, padding: 26, width: "100%", maxWidth: 380, border: `1px solid ${C.border}` }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
-          <h3 style={{ margin: 0, fontSize: 17, fontWeight: 700 }}>🔔 경기 알림</h3>
-          <button onClick={onClose} style={{ background: "none", border: "none", color: C.sub, cursor: "pointer", fontSize: 18 }}>✕</button>
-        </div>
-
-        <div onClick={() => setEnabled((v) => !v)} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18, cursor: "pointer" }}>
-          <div style={{ width: 40, height: 22, borderRadius: 11, background: enabled ? C.accent : C.border, position: "relative", flexShrink: 0 }}>
-            <div style={{ position: "absolute", top: 3, left: enabled ? 21 : 3, width: 16, height: 16, borderRadius: "50%", background: "white", transition: "left 0.2s" }} />
-          </div>
-          <span style={{ fontSize: 14, color: enabled ? C.text : C.sub, fontWeight: 600 }}>경기 시작 전 알림 {enabled ? "켜짐" : "꺼짐"}</span>
-        </div>
-
-        <div style={{ opacity: enabled ? 1 : 0.4, pointerEvents: enabled ? "auto" : "none" }}>
-          <Lbl>응원팀</Lbl>
-          <select value={team} onChange={(e) => setTeam(e.target.value)} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 9, padding: "9px 10px", color: C.text, fontSize: 13, width: "100%", marginBottom: 14 }}>
-            {TEAMS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-          </select>
-          <Lbl>알림 시점 (경기 시작 전)</Lbl>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-            {[30, 60, 120, 180].map((m) => (
-              <button key={m} onClick={() => setLead(m)} style={{
-                padding: "7px 14px", borderRadius: 8,
-                border: `1.5px solid ${lead === m ? C.accent : C.border}`,
-                background: lead === m ? C.accentSoft : "transparent",
-                color: lead === m ? C.text : C.sub, fontSize: 13, fontWeight: 600, cursor: "pointer",
-              }}>{leadLabel(m)}</button>
-            ))}
-          </div>
-          <div style={{ marginTop: 12, fontSize: 11, color: C.muted, lineHeight: 1.5 }}>
-            ※ 앱을 열 때 다가오는 경기 기준으로 다시 예약됩니다. 일정 출처: KBO 공식.
-          </div>
-        </div>
-
-        <button onClick={() => { onSave({ enabled, team, lead }); onClose(); }} style={{
-          width: "100%", marginTop: 20, background: `linear-gradient(135deg,${C.accent},#7C3AED)`,
-          border: "none", borderRadius: 12, padding: 12, color: "white", fontSize: 14, fontWeight: 700, cursor: "pointer",
-        }}>저장</button>
-      </div>
-    </div>
-  );
-}
-
-// ─── 백업/복원 모달 ─────────────────────────────────────────────────────────────────
-interface BackupExtra { notif?: NotifSettings; activeId?: string | null }
-
-function BackupModal({ sources, notif, activeId, onImport, onClose, toast }: {
-  sources: Source[];
-  notif: NotifSettings;
-  activeId: string | null;
-  onImport: (s: Source[], extra: BackupExtra) => void;
-  onClose: () => void;
-  toast: (m: string, t?: ToastMsg["type"]) => void;
-}) {
-  const exportText = JSON.stringify({ version: 2, sources, notif, activeId }, null, 2);
-  const [text, setText] = useState("");
-
-  const copy = async () => {
-    try { await navigator.clipboard.writeText(exportText); toast("✓ 클립보드에 복사됨"); }
-    catch { toast("복사 실패 — 아래 내용을 직접 선택해 복사하세요", "warn"); }
-  };
-  const download = () => {
-    try {
-      const blob = new Blob([exportText], { type: "application/json" });
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = `wallsync-backup-${new Date().toISOString().slice(0, 10)}.json`;
-      a.click();
-      URL.revokeObjectURL(a.href);
-    } catch { toast("다운로드 실패", "error"); }
-  };
-  const doImport = () => {
-    try {
-      const parsed = JSON.parse(text);
-      // v1: 소스 배열 / v2: { sources, notif, activeId }
-      const rawList = Array.isArray(parsed) ? parsed : parsed?.sources;
-      if (!Array.isArray(rawList)) throw new Error("형식이 올바르지 않습니다");
-      const valid = rawList.filter((x) => x && typeof x.id === "string" && typeof x.url === "string" && (x.type === "kbo" || x.type === "url"));
-      if (valid.length === 0) throw new Error("유효한 항목이 없습니다");
-      const extra: BackupExtra = {};
-      if (!Array.isArray(parsed)) {
-        const n = parsed.notif;
-        if (n && typeof n.enabled === "boolean" && typeof n.team === "string" && typeof n.lead === "number") extra.notif = n;
-        if (typeof parsed.activeId === "string" || parsed.activeId === null) extra.activeId = parsed.activeId;
-      }
-      onImport(valid as Source[], extra);
-      toast(`✓ ${valid.length}개 가져옴 (덮어쓰기)`);
-      onClose();
-    } catch (e) {
-      toast(`가져오기 실패: ${(e as Error).message}`, "error");
-    }
-  };
-
-  const box: React.CSSProperties = {
-    background: C.surface, border: `1px solid ${C.border}`, borderRadius: 9, padding: "9px 12px",
-    color: C.text, fontSize: 12, width: "100%", fontFamily: "monospace", resize: "vertical",
-  };
-  const btn = (bg: string, fg: string): React.CSSProperties => ({
-    flex: 1, padding: "9px 0", borderRadius: 9, border: "none", background: bg, color: fg, fontSize: 12, fontWeight: 700, cursor: "pointer",
-  });
-
-  return (
-    <div onClick={(e) => { if (e.target === e.currentTarget) onClose(); }} style={{
-      position: "fixed", inset: 0, background: "rgba(0,0,0,0.8)", zIndex: 200,
-      display: "flex", alignItems: "center", justifyContent: "center", padding: 16,
-    }}>
-      <div style={{ background: C.card, borderRadius: 20, padding: 24, width: "100%", maxWidth: 460, border: `1px solid ${C.border}`, maxHeight: "92vh", overflowY: "auto" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
-          <h3 style={{ margin: 0, fontSize: 18, fontWeight: 800 }}>⤓ 백업 / 복원</h3>
-          <button onClick={onClose} style={{ background: "none", border: "none", color: C.sub, cursor: "pointer", fontSize: 20 }}>✕</button>
-        </div>
-
-        <Lbl>내보내기 ({sources.length}개)</Lbl>
-        <textarea readOnly value={exportText} rows={5} style={{ ...box, marginBottom: 8 }} onFocus={(e) => e.currentTarget.select()} />
-        <div style={{ display: "flex", gap: 8, marginBottom: 18 }}>
-          <button onClick={copy} style={btn(C.accent, "white")}>클립보드 복사</button>
-          <button onClick={download} style={btn("transparent", C.sub)}>파일 다운로드</button>
-        </div>
-
-        <Lbl>가져오기 (붙여넣기 후 덮어쓰기)</Lbl>
-        <textarea value={text} onChange={(e) => setText(e.target.value)} rows={5} placeholder='[{"id":"...","url":"...","type":"kbo",...}]' style={{ ...box, marginBottom: 8 }} />
-        <button onClick={doImport} disabled={!text.trim()} style={{ ...btn(C.teal, "#003"), width: "100%", opacity: text.trim() ? 1 : 0.4 }}>가져오기 (현재 목록 덮어쓰기)</button>
-      </div>
-    </div>
-  );
-}
-
-// ─── 카드 ──────────────────────────────────────────────────────────────────────
-function SourceCard({ src, sync, active, onApply, onTarget, onSchedule, onEdit, onCopy, onDelete }: {
-  src: Source;
-  sync?: SyncResult;
-  active: boolean;
-  onApply: (s: Source) => void;
-  onTarget: (id: string, t: WallpaperTarget) => void;
-  onSchedule: (s: Source) => void;
-  onEdit: (s: Source) => void;
-  onCopy: (s: Source) => void;
-  onDelete: (s: Source) => void;
-}) {
-  const accent = teamColor(src);
-  const sl = syncLabel(sync);
-  const [bust, setBust] = useState(0);
-  const [imgLoading, setImgLoading] = useState(true);
-  const displaySrc = bust ? src.url + (src.url.includes("?") ? "&" : "?") + "_t=" + bust : src.url;
-  const refresh = () => { setImgLoading(true); setBust(Date.now()); };
-  const border = active ? accent : src.auto ? C.teal : "transparent";
-
-  return (
-    <div style={{ background: C.card, borderRadius: 16, overflow: "hidden", border: `1.5px solid ${border}`, boxShadow: active ? `0 8px 24px ${accent}44` : "none" }}>
-      <div style={{ position: "relative", paddingTop: "150%", background: C.surface }}>
-        <img key={displaySrc} src={displaySrc} alt={src.name} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }}
-          onLoad={(e) => { setImgLoading(false); (e.target as HTMLImageElement).style.opacity = "1"; }}
-          onError={(e) => { setImgLoading(false); (e.target as HTMLImageElement).style.opacity = "0.2"; }} />
-        {imgLoading && <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: C.muted, fontSize: 11 }}>불러오는 중…</div>}
-
-        <div style={{ position: "absolute", top: 8, left: 8, background: "rgba(0,0,0,0.6)", borderRadius: 6, padding: "2px 8px", fontSize: 9, fontWeight: 700, color: src.type === "kbo" ? accent : C.sub }}>
-          {src.type === "kbo" ? "KBO" : "URL"}
-        </div>
-        {active && <div style={{ position: "absolute", top: 8, left: 48, background: accent, borderRadius: 6, padding: "2px 8px", fontSize: 9, fontWeight: 800, color: "#fff" }}>✓ 적용중</div>}
-        {src.auto && (
-          <div style={{ position: "absolute", top: 8, right: 8, background: C.tealSoft, border: `1px solid ${C.teal}`, borderRadius: 6, padding: "2px 7px", fontSize: 9, fontWeight: 700, color: C.teal }}>
-            ⚡ {scheduleLabel(src.schedule)}
-          </div>
-        )}
-        <button onClick={refresh} title="미리보기 새로고침" style={{ position: "absolute", bottom: 8, left: 8, width: 28, height: 28, borderRadius: 8, background: "rgba(0,0,0,0.6)", border: "none", color: "#fff", cursor: "pointer", fontSize: 13 }}>↻</button>
-        <button onClick={() => onDelete(src)} title="삭제" style={{ position: "absolute", bottom: 8, right: 8, width: 28, height: 28, borderRadius: 8, background: "rgba(0,0,0,0.6)", border: "none", color: C.error, cursor: "pointer", fontSize: 12 }}>✕</button>
-      </div>
-
-      <div style={{ padding: "10px 12px 12px" }}>
-        <div style={{ color: C.text, fontSize: 13, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{src.name}</div>
-        <div style={{ color: C.muted, fontSize: 10, marginTop: 2 }}>{appliedLabel(src.lastApplied)}</div>
-        {sl && (
-          <div style={{ color: sl.color, fontSize: 10, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {sl.text}{sync && !sync.ok && sync.error ? ` · ${sync.error}` : ""}
-          </div>
-        )}
-
-        <div style={{ margin: "8px 0" }}><TargetPicker value={src.target} onChange={(t) => onTarget(src.id, t)} /></div>
-
-        <div style={{ display: "flex", gap: 6 }}>
-          <button onClick={() => onApply(src)} style={{ flex: 1, padding: "8px 0", borderRadius: 9, border: "none", background: accent, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>지금 적용</button>
-          <button onClick={() => onSchedule(src)} title="자동 갱신" style={{ padding: "8px 11px", borderRadius: 9, border: `1px solid ${src.auto ? C.teal : C.border}`, background: src.auto ? C.tealSoft : "transparent", color: src.auto ? C.teal : C.sub, fontSize: 12, cursor: "pointer" }}>⏰</button>
-        </div>
-        <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
-          <button onClick={() => onEdit(src)} style={ghostMini}>✎ 편집</button>
-          <button onClick={() => onCopy(src)} style={ghostMini}>⧉ URL</button>
-        </div>
-      </div>
-    </div>
-  );
-}
+// 두 소스의 적용 대상이 같은 화면을 덮는지 (both는 모든 대상과 겹침)
+const targetsOverlap = (a: WallpaperTarget, b: WallpaperTarget) =>
+  a === b || a === "both" || b === "both";
 
 // ─── App ──────────────────────────────────────────────────────────────────────
 export default function App() {
@@ -544,15 +42,13 @@ export default function App() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [showNotif, setShowNotif] = useState(false);
   const [notif, setNotif] = useState<NotifSettings>({ enabled: false, team: "KIA", lead: 60 });
+  const [notifSaved, setNotifSaved] = useState(false); // 사용자가 알림 설정을 저장한 적 있는지
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(STORE_KEY);
-      if (raw) setSources(JSON.parse(raw));
-      setActiveId(localStorage.getItem(ACTIVE_KEY));
-      const n = localStorage.getItem(NOTIF_KEY);
-      if (n) setNotif(JSON.parse(n));
-    } catch { /* ignore */ }
+    setSources(store.loadSources());
+    setActiveId(store.loadActiveId());
+    const n = store.loadNotif();
+    if (n) { setNotif(n); setNotifSaved(true); }
     setLoaded(true);
   }, []);
 
@@ -590,8 +86,8 @@ export default function App() {
     return () => document.removeEventListener("visibilitychange", onVis);
   }, [refreshSync, checkBattery]);
 
-  useEffect(() => { if (loaded) localStorage.setItem(STORE_KEY, JSON.stringify(sources)); }, [sources, loaded]);
-  useEffect(() => { if (loaded) { if (activeId) localStorage.setItem(ACTIVE_KEY, activeId); else localStorage.removeItem(ACTIVE_KEY); } }, [activeId, loaded]);
+  useEffect(() => { if (loaded) store.saveSources(sources); }, [sources, loaded]);
+  useEffect(() => { if (loaded) store.saveActiveId(activeId); }, [activeId, loaded]);
 
   const toast = useCallback((msg: string, type: ToastMsg["type"] = "success", action?: ToastAction) => {
     const id = uid();
@@ -601,7 +97,8 @@ export default function App() {
 
   const persistNotif = (next: NotifSettings) => {
     setNotif(next);
-    localStorage.setItem(NOTIF_KEY, JSON.stringify(next));
+    setNotifSaved(true);
+    store.saveNotifSettings(next);
   };
 
   // Android 12+에서 정시 알람이 막혀 있으면 알림이 늦게 온다 → 설정 유도
@@ -658,12 +155,19 @@ export default function App() {
   };
 
   const handleEditorSubmit = async (s: Source) => {
-    const isEdit = !!sources.find((x) => x.id === s.id);
-    setSources((p) => (isEdit ? p.map((x) => (x.id === s.id ? s : x)) : [s, ...p]));
-    if (isEdit) {
-      if (native && s.auto && s.schedule) { try { await scheduleNative(s.id, s.url, s.target, s.schedule); } catch { /* ignore */ } }
+    const prev = sources.find((x) => x.id === s.id);
+    if (prev) {
+      // URL이 바뀌면 이전 적용 이력은 다른 이미지의 것 → 리셋해 표시 정합 유지
+      const urlChanged = prev.url !== s.url;
+      const next = urlChanged ? { ...s, lastApplied: null } : s;
+      setSources((p) => p.map((x) => (x.id === s.id ? next : x)));
+      if (urlChanged && activeId === s.id) setActiveId(null);
+      if (native && next.auto && next.schedule) {
+        try { await scheduleNative(next.id, next.url, next.target, next.schedule); } catch { /* ignore */ }
+      }
       toast(`✓ "${s.name}" 수정됨`);
     } else {
+      setSources((p) => [s, ...p]);
       toast(`✓ "${s.name}" 추가됨`);
     }
   };
@@ -675,6 +179,9 @@ export default function App() {
     if (!native) { toast("예약은 설치된 앱에서만 동작합니다", "warn"); return; }
     try {
       if (auto && schedule) {
+        // 같은 화면을 갱신하는 다른 자동 소스가 있으면 마지막 실행이 덮어씀 → 미리 경고
+        const clash = sources.find((x) => x.id !== id && x.auto && targetsOverlap(x.target, s.target));
+        if (clash) toast(`⚠ "${clash.name}"도 같은 화면을 자동 갱신 중 — 나중에 실행된 쪽이 덮어씁니다`, "warn");
         await scheduleNative(id, s.url, s.target, schedule);
         try { await Wallpaper.requestNotificationPermission(); } catch { /* ignore */ }
         toast("⏰ 자동 갱신 예약됨");
@@ -734,19 +241,12 @@ export default function App() {
   };
 
   const autoCount = sources.filter((s) => s.auto).length;
+  const { src: activeSrc, time: activeTime } = resolveActive(sources, activeId, syncStatus);
 
-  // 실제 기기 배경 = 마지막으로 적용한 주체 기준 (수동 '지금 적용' vs 백그라운드 자동 갱신 성공 중 최신)
-  const { src: activeSrc, time: activeTime } = (() => {
-    let src: Source | null = null;
-    let time = 0;
-    for (const s of sources) {
-      const manual = s.id === activeId ? s.lastApplied ?? 0 : 0;
-      const auto = s.auto && syncStatus[s.id]?.ok ? syncStatus[s.id].time : 0;
-      const t = Math.max(manual, auto);
-      if (t > time) { time = t; src = s; }
-    }
-    return { src, time };
-  })();
+  // 알림 설정을 저장한 적 없으면 첫 KBO 소스의 팀을 기본 응원팀으로 제안
+  const notifForModal = notifSaved
+    ? notif
+    : { ...notif, team: sources.find((s) => s.type === "kbo")?.kbo?.team ?? notif.team };
 
   return (
     <div style={{ minHeight: "100vh", background: C.bg, color: C.text, fontFamily: "'Segoe UI',-apple-system,'Noto Sans KR',sans-serif" }}>
@@ -776,7 +276,7 @@ export default function App() {
       </div>
 
       {editor && <Editor editing={editor.editing} onSubmit={handleEditorSubmit} onClose={() => setEditor(null)} />}
-      {showNotif && <NotifModal settings={notif} onSave={saveNotif} onClose={() => setShowNotif(false)} />}
+      {showNotif && <NotifModal settings={notifForModal} onSave={saveNotif} onClose={() => setShowNotif(false)} />}
       {showBackup && <BackupModal sources={sources} notif={notif} activeId={activeId} onImport={handleImport} onClose={() => setShowBackup(false)} toast={toast} />}
       {schedFor && <ScheduleModal src={schedFor} onSave={(auto, s) => handleSchedSave(schedFor.id, auto, s)} onTest={() => handleApply(schedFor)} onClose={() => setSchedFor(null)} />}
 
@@ -788,7 +288,7 @@ export default function App() {
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             {autoCount > 0 && <div style={{ padding: "6px 12px", borderRadius: 10, background: C.tealSoft, border: `1px solid ${C.teal}`, color: C.teal, fontSize: 12, fontWeight: 700 }}>⚡ {autoCount}개 자동</div>}
-            <button onClick={() => setShowNotif(true)} title="경기 알림" style={{ background: notif.enabled ? C.tealSoft : "transparent", border: `1px solid ${notif.enabled ? C.teal : C.border}`, borderRadius: 11, padding: "9px 12px", color: notif.enabled ? C.teal : C.sub, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>🔔</button>
+            <button onClick={() => setShowNotif(true)} title="경기 알림" aria-label="경기 알림 설정" style={{ background: notif.enabled ? C.tealSoft : "transparent", border: `1px solid ${notif.enabled ? C.teal : C.border}`, borderRadius: 11, padding: "9px 12px", color: notif.enabled ? C.teal : C.sub, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>🔔</button>
             {sources.length > 0 && <button onClick={() => setShowBackup(true)} title="백업 / 복원" style={{ background: "transparent", border: `1px solid ${C.border}`, borderRadius: 11, padding: "9px 14px", color: C.sub, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>⤓ 백업</button>}
             <button onClick={() => setEditor({ editing: null })} style={{ background: `linear-gradient(135deg,${C.accent},#7C3AED)`, border: "none", borderRadius: 11, padding: "9px 18px", color: "white", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>+ 추가</button>
           </div>

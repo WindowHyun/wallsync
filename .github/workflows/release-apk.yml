@@ -37,6 +37,10 @@ jobs:
       - name: Type check
         run: npm run typecheck
 
+      # 웹 순수 로직 단위 테스트
+      - name: Run web tests
+        run: npm test
+
       - name: Build React app
         run: npm run build
 
@@ -51,6 +55,12 @@ jobs:
 
       - name: Grant Gradle permission
         run: chmod +x android/gradlew
+
+      # 네이티브 순수 로직(ScheduleMath) 단위 테스트 — Debug 빌드와 동일 게이트
+      - name: Run unit tests
+        run: |
+          cd android
+          ./gradlew testDebugUnitTest --no-daemon
 
       # 서명된 Release APK 빌드 (태그→versionName, run_number→versionCode 주입)
       - name: Build Signed Release APK

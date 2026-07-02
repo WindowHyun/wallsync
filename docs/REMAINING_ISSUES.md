@@ -55,6 +55,22 @@
 - **검증**: typecheck·vite build 통과. 네이티브 컴파일은 CI에서 확인.
 - **잔여(수용/보류)**: 백업 "파일 다운로드"의 WebView 동작(실기기 확인 필요, 클립보드 대안 존재), 외부 일정 API 단일 의존(비공식 — 서비스 리스크로 문서화)
 
+### ✅ 6차 수정 내역 — 구조·기능 리스트업(A/B 시리즈) 후속
+> 대상: 구조(A1~A9)·기능(B1~B7) 점검 결과의 우선순위 처리
+
+- **B1** — 영구 실패 무한 재시도 차단: `PermanentException`(4xx·디코드 실패·64MB 초과)은 즉시 포기, 일시 오류는 최대 5회 시도. daily는 포기해도 다음 날 예약을 걸어 체인 유지 (`WallpaperHelper`/`WallpaperWorker`)
+- **A9** — 릴리스 CI 게이트 정렬: `release-apk.yml`에 `testDebugUnitTest` 추가, 두 워크플로 모두에 웹 테스트(`npm test`) 추가
+- **A1+A3** — 웹 구조 분리 + vitest 도입: `App.tsx` 856줄 → 조립·핸들러 중심으로 축소. `types/theme/storage/lib(kbo·format·backup·active·schedule-plan)/components(5종)` 분리. 순수 로직 **단위 테스트 35개**(백업 파싱·active 계산·경기 알림 필터·포맷·KBO URL) 추가
+- **A2** — localStorage 접근을 `storage.ts`로 일원화 (알림 예약 id 키는 notifications 소관으로 유지)
+- **B2** — 같은 화면을 갱신하는 자동 소스가 겹치면 예약 시 경고 토스트 (비파괴 기본값)
+- **B3** — 알림 설정 미저장 상태면 첫 KBO 소스의 팀을 응원팀 기본값으로 제안
+- **B4** — interval flex 창을 주기 후반 5~15분으로 축소 — "N시간마다" 기대에 근접
+- **B6** — 편집으로 URL 변경 시 `lastApplied` 리셋 + 적용중 해제 (표시 정합)
+- **A7** — 아이콘 버튼(닫기·삭제·새로고침·자동갱신·알림)에 aria-label 부여
+- **A8** — 리뷰 문서를 `docs/`로 이동
+- **검증**: typecheck 클린 · vitest 35/35 통과 · vite build 성공. 네이티브 컴파일은 PR CI에서 확인.
+- **보류**: A4 서비스 계층 완전 분리(핸들러는 App 유지), A5 계약 테스트, A6 이력 단일화, B5 알림 자동 연장(백그라운드 웹뷰 부재 — 네이티브 포팅 필요한 별도 과제)
+
 ### ☑ 설계상 수용(미수정) 결정
 - **R3** — 배터리 최적화 직접 요청은 Play 제한 권한. 현재 배포가 사이드로드(Debug APK)라 유지하며, **Play Store 정식 배포 착수 시점**에 직접 요청 제거 + `openBatterySettings()` 안내로 전환(폴백 경로 존재).
 - **R4** — daily 워커의 self-reschedule가 동일 `workName`으로 `REPLACE`하는 것은, `cancel`이 같은 unique name을 찾아 취소해야 하므로 **이름 재사용이 필수**. 실행 직전 작업을 REPLACE하는 표준 패턴이며 레이스는 이론적 수준이라 유지(모니터링).
