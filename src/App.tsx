@@ -383,13 +383,17 @@ function NotifModal({ settings, onSave, onClose }: { settings: NotifSettings; on
 }
 
 // ─── 백업/복원 모달 ─────────────────────────────────────────────────────────────────
-function BackupModal({ sources, onImport, onClose, toast }: {
+interface BackupExtra { notif?: NotifSettings; activeId?: string | null }
+
+function BackupModal({ sources, notif, activeId, onImport, onClose, toast }: {
   sources: Source[];
-  onImport: (s: Source[]) => void;
+  notif: NotifSettings;
+  activeId: string | null;
+  onImport: (s: Source[], extra: BackupExtra) => void;
   onClose: () => void;
   toast: (m: string, t?: ToastMsg["type"]) => void;
 }) {
-  const exportText = JSON.stringify(sources, null, 2);
+  const exportText = JSON.stringify({ version: 2, sources, notif, activeId }, null, 2);
   const [text, setText] = useState("");
 
   const copy = async () => {
@@ -409,10 +413,18 @@ function BackupModal({ sources, onImport, onClose, toast }: {
   const doImport = () => {
     try {
       const parsed = JSON.parse(text);
-      if (!Array.isArray(parsed)) throw new Error("배열 형식이 아닙니다");
-      const valid = parsed.filter((x) => x && typeof x.id === "string" && typeof x.url === "string" && (x.type === "kbo" || x.type === "url"));
+      // v1: 소스 배열 / v2: { sources, notif, activeId }
+      const rawList = Array.isArray(parsed) ? parsed : parsed?.sources;
+      if (!Array.isArray(rawList)) throw new Error("형식이 올바르지 않습니다");
+      const valid = rawList.filter((x) => x && typeof x.id === "string" && typeof x.url === "string" && (x.type === "kbo" || x.type === "url"));
       if (valid.length === 0) throw new Error("유효한 항목이 없습니다");
-      onImport(valid as Source[]);
+      const extra: BackupExtra = {};
+      if (!Array.isArray(parsed)) {
+        const n = parsed.notif;
+        if (n && typeof n.enabled === "boolean" && typeof n.team === "string" && typeof n.lead === "number") extra.notif = n;
+        if (typeof parsed.activeId === "string" || parsed.activeId === null) extra.activeId = parsed.activeId;
+      }
+      onImport(valid as Source[], extra);
       toast(`✓ ${valid.length}개 가져옴 (덮어쓰기)`);
       onClose();
     } catch (e) {
@@ -498,7 +510,11 @@ function SourceCard({ src, sync, active, onApply, onTarget, onSchedule, onEdit, 
       <div style={{ padding: "10px 12px 12px" }}>
         <div style={{ color: C.text, fontSize: 13, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{src.name}</div>
         <div style={{ color: C.muted, fontSize: 10, marginTop: 2 }}>{appliedLabel(src.lastApplied)}</div>
-        {sl && <div style={{ color: sl.color, fontSize: 10, marginTop: 2 }} title={sync && !sync.ok ? sync.error : undefined}>{sl.text}</div>}
+        {sl && (
+          <div style={{ color: sl.color, fontSize: 10, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {sl.text}{sync && !sync.ok && sync.error ? ` · ${sync.error}` : ""}
+          </div>
+        )}
 
         <div style={{ margin: "8px 0" }}><TargetPicker value={src.target} onChange={(t) => onTarget(src.id, t)} /></div>
 
@@ -541,9 +557,11 @@ export default function App() {
   }, []);
 
   // 앱을 열 때 알림이 켜져 있으면 다가오는 경기로 다시 예약
+  // (실패를 조용히 삼키면 '켜짐' 표시와 실제 예약이 어긋나므로 사용자에게 알림)
   useEffect(() => {
     if (loaded && native && notif.enabled) {
-      scheduleGameNotifications(notif.team, notif.lead).catch(() => {});
+      scheduleGameNotifications(notif.team, notif.lead).catch(() =>
+        toast("경기 알림 재예약 실패 — 🔔 설정을 다시 확인해주세요", "warn"));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loaded]);
@@ -575,26 +593,50 @@ export default function App() {
   useEffect(() => { if (loaded) localStorage.setItem(STORE_KEY, JSON.stringify(sources)); }, [sources, loaded]);
   useEffect(() => { if (loaded) { if (activeId) localStorage.setItem(ACTIVE_KEY, activeId); else localStorage.removeItem(ACTIVE_KEY); } }, [activeId, loaded]);
 
-  const saveNotif = async (next: NotifSettings) => {
-    setNotif(next);
-    localStorage.setItem(NOTIF_KEY, JSON.stringify(next));
-    if (!native) { toast("알림은 설치된 앱에서만 동작합니다", "warn"); return; }
-    try {
-      if (next.enabled) {
-        const n = await scheduleGameNotifications(next.team, next.lead);
-        toast(n > 0 ? `🔔 경기 알림 ${n}건 예약됨` : "다가오는 경기가 없습니다", n > 0 ? "success" : "warn");
-      } else {
-        await cancelGameNotifications();
-        toast("경기 알림 해제됨", "warn");
-      }
-    } catch (e) { toast((e as Error).message || "알림 예약 실패", "error"); }
-  };
-
   const toast = useCallback((msg: string, type: ToastMsg["type"] = "success", action?: ToastAction) => {
     const id = uid();
     setToasts((t) => [...t, { id, msg, type, action }]);
     setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), action ? 5000 : 3200);
   }, []);
+
+  const persistNotif = (next: NotifSettings) => {
+    setNotif(next);
+    localStorage.setItem(NOTIF_KEY, JSON.stringify(next));
+  };
+
+  // Android 12+에서 정시 알람이 막혀 있으면 알림이 늦게 온다 → 설정 유도
+  const checkExactAlarm = async () => {
+    try {
+      const r = await Wallpaper.canScheduleExactAlarms();
+      if (!r.allowed) {
+        toast("정시 알림을 받으려면 '알람 및 리마인더' 허용이 필요합니다", "warn", {
+          label: "설정 열기",
+          fn: () => { Wallpaper.openExactAlarmSettings().catch(() => {}); },
+        });
+      }
+    } catch { /* ignore */ }
+  };
+
+  const saveNotif = async (next: NotifSettings) => {
+    if (!native) {
+      persistNotif(next);
+      toast("알림은 설치된 앱에서만 동작합니다", "warn");
+      return;
+    }
+    try {
+      if (next.enabled) {
+        // 예약이 실제로 성공했을 때만 '켜짐'으로 저장 (표시=실제 일치)
+        const n = await scheduleGameNotifications(next.team, next.lead);
+        persistNotif(next);
+        toast(n > 0 ? `🔔 경기 알림 ${n}건 예약됨` : "다가오는 경기가 없습니다", n > 0 ? "success" : "warn");
+        if (n > 0) checkExactAlarm();
+      } else {
+        await cancelGameNotifications();
+        persistNotif(next);
+        toast("경기 알림 해제됨", "warn");
+      }
+    } catch (e) { toast((e as Error).message || "알림 예약 실패", "error"); }
+  };
 
   const handleApply = async (s: Source) => {
     if (!native) { toast("실제 적용은 설치된 앱에서만 동작합니다", "warn"); return; }
@@ -650,7 +692,7 @@ export default function App() {
   };
 
   // 복원: 기존 예약을 모두 취소하고 가져온 목록으로 교체, 자동 소스는 재예약
-  const handleImport = async (imported: Source[]) => {
+  const handleImport = async (imported: Source[], extra: BackupExtra) => {
     if (native) {
       try {
         for (const old of sources) { try { await Wallpaper.cancel({ id: old.id }); } catch { /* ignore */ } }
@@ -660,23 +702,51 @@ export default function App() {
       } catch { /* ignore */ }
     }
     setSources(imported);
+    // v2 백업이면 적용중·경기알림 설정도 복원
+    if (extra.activeId !== undefined) {
+      setActiveId(extra.activeId && imported.some((s) => s.id === extra.activeId) ? extra.activeId : null);
+    }
+    if (extra.notif) {
+      persistNotif(extra.notif);
+      if (native && extra.notif.enabled) {
+        scheduleGameNotifications(extra.notif.team, extra.notif.lead).catch(() =>
+          toast("경기 알림 재예약 실패 — 🔔 설정을 다시 확인해주세요", "warn"));
+      }
+    }
   };
 
   const handleDelete = (s: Source) => {
+    const idx = sources.findIndex((x) => x.id === s.id);
     setSources((p) => p.filter((x) => x.id !== s.id));
     if (activeId === s.id) setActiveId(null);
     if (native) { Wallpaper.cancel({ id: s.id }).catch(() => {}); }
     toast(`"${s.name}" 삭제됨`, "warn", {
       label: "실행취소",
       fn: () => {
-        setSources((p) => (p.find((x) => x.id === s.id) ? p : [s, ...p]));
+        setSources((p) => {
+          if (p.find((x) => x.id === s.id)) return p;
+          const at = Math.min(Math.max(idx, 0), p.length); // 원래 위치로 복원
+          return [...p.slice(0, at), s, ...p.slice(at)];
+        });
         if (native && s.auto && s.schedule) { scheduleNative(s.id, s.url, s.target, s.schedule).catch(() => {}); }
       },
     });
   };
 
   const autoCount = sources.filter((s) => s.auto).length;
-  const activeSrc = sources.find((s) => s.id === activeId) || null;
+
+  // 실제 기기 배경 = 마지막으로 적용한 주체 기준 (수동 '지금 적용' vs 백그라운드 자동 갱신 성공 중 최신)
+  const { src: activeSrc, time: activeTime } = (() => {
+    let src: Source | null = null;
+    let time = 0;
+    for (const s of sources) {
+      const manual = s.id === activeId ? s.lastApplied ?? 0 : 0;
+      const auto = s.auto && syncStatus[s.id]?.ok ? syncStatus[s.id].time : 0;
+      const t = Math.max(manual, auto);
+      if (t > time) { time = t; src = s; }
+    }
+    return { src, time };
+  })();
 
   return (
     <div style={{ minHeight: "100vh", background: C.bg, color: C.text, fontFamily: "'Segoe UI',-apple-system,'Noto Sans KR',sans-serif" }}>
@@ -707,7 +777,7 @@ export default function App() {
 
       {editor && <Editor editing={editor.editing} onSubmit={handleEditorSubmit} onClose={() => setEditor(null)} />}
       {showNotif && <NotifModal settings={notif} onSave={saveNotif} onClose={() => setShowNotif(false)} />}
-      {showBackup && <BackupModal sources={sources} onImport={handleImport} onClose={() => setShowBackup(false)} toast={toast} />}
+      {showBackup && <BackupModal sources={sources} notif={notif} activeId={activeId} onImport={handleImport} onClose={() => setShowBackup(false)} toast={toast} />}
       {schedFor && <ScheduleModal src={schedFor} onSave={(auto, s) => handleSchedSave(schedFor.id, auto, s)} onTest={() => handleApply(schedFor)} onClose={() => setSchedFor(null)} />}
 
       <div style={{ maxWidth: 760, margin: "0 auto", padding: "24px 18px 60px" }}>
@@ -758,7 +828,7 @@ export default function App() {
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 10, color: C.muted, letterSpacing: 1, fontWeight: 700 }}>현재 적용 중</div>
               <div style={{ fontSize: 15, fontWeight: 800, color: teamColor(activeSrc), overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{activeSrc.name}</div>
-              <div style={{ fontSize: 11, color: C.sub }}>{appliedLabel(activeSrc.lastApplied)} · {targetLabel(activeSrc.target)}</div>
+              <div style={{ fontSize: 11, color: C.sub }}>{activeTime ? `${rel(activeTime)} 적용` : "미적용"} · {targetLabel(activeSrc.target)}</div>
             </div>
           </div>
         )}
@@ -773,7 +843,7 @@ export default function App() {
           ) : (
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 14 }}>
               {sources.map((s) => (
-                <SourceCard key={s.id} src={s} sync={syncStatus[s.id]} active={s.id === activeId}
+                <SourceCard key={s.id} src={s} sync={syncStatus[s.id]} active={s.id === activeSrc?.id}
                   onApply={handleApply} onTarget={handleTarget} onSchedule={(x) => setSchedFor(x)}
                   onEdit={(x) => setEditor({ editing: x })} onCopy={handleCopy} onDelete={handleDelete} />
               ))}

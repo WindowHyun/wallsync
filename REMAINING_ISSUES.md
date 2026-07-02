@@ -39,6 +39,22 @@
 - **R10** — `ScheduleMath.calcInSampleSize`에 픽셀 상한 안전장치 추가(요청 픽셀의 4배 초과 시 추가 축소) → 한 축만 큰 극단적 종횡비/초대형 이미지의 OOM 방지. `WallpaperHelper.download`에 64MB 응답 상한 추가. `ScheduleMathTest`에 극단 종횡비 케이스 추가(총 9케이스).
 - **검증**: 매니페스트 XML well-formed, `npm run typecheck` 통과, ScheduleMath 9개 케이스 독립 JVM 실행 전부 PASS.
 
+### ✅ 5차 수정 내역 — 신규 기능(구단컬러 UI·경기 알림) 점검 후속
+> 대상: `2ee3c85`(편집·Undo·적용중 배지), `087490c`(경기 전 로컬 알림) 점검에서 발견된 이슈
+
+- **M1** — 경기 알림 필터 강화: `status`(취소/연기/중단 등) 경기 제외, `HH:MM` 형식 검증, `Number.isFinite` 가드로 Invalid Date 예약 차단, 한 자리 시각(`8:30`) 패딩 (`notifications.ts`)
+- **M2** — 알림 설정 표시=실제 일치: 예약 성공 후에만 `enabled` 저장(실패 시 롤백 불필요하게 설계 변경), 앱 오픈 시 자동 재예약 실패를 warn 토스트로 노출 (`App.tsx saveNotif`)
+- **M4** — Android 12+ 정시 알람 처리: 자체 플러그인에 `canScheduleExactAlarms`/`openExactAlarmSettings` 추가, 알림 켤 때 미허용이면 "설정 열기" 액션 토스트 (`WallpaperPlugin.java`, `wallpaper.ts`)
+- **M3** — "현재 적용 중" 정확화: 수동 적용 시각과 백그라운드 sync 성공 시각 중 최신을 실제 적용으로 계산 (`App.tsx`)
+- **L1** — 백업 v2: `{version, sources, notif, activeId}` 포맷으로 확장, v1(배열)도 수용, 복원 시 알림 재예약
+- **L2** — 워커 실패 알림을 2회 연속 실패부터(`getRunAttemptCount()`) — 일시 오류 노이즈 제거
+- **L3** — `cancel` 시 sync 이력 정리(`SyncStatusStore.remove`) — 삭제 소스 잔존 누적 방지
+- **L4** — sync 실패 사유를 카드에 인라인 표시(모바일에서 툴팁 불가 문제)
+- **L5** — 일정 fetch 10초 타임아웃(AbortController)
+- **L8** — 삭제 Undo가 원래 위치로 복원
+- **검증**: typecheck·vite build 통과. 네이티브 컴파일은 CI에서 확인.
+- **잔여(수용/보류)**: 백업 "파일 다운로드"의 WebView 동작(실기기 확인 필요, 클립보드 대안 존재), 외부 일정 API 단일 의존(비공식 — 서비스 리스크로 문서화)
+
 ### ☑ 설계상 수용(미수정) 결정
 - **R3** — 배터리 최적화 직접 요청은 Play 제한 권한. 현재 배포가 사이드로드(Debug APK)라 유지하며, **Play Store 정식 배포 착수 시점**에 직접 요청 제거 + `openBatterySettings()` 안내로 전환(폴백 경로 존재).
 - **R4** — daily 워커의 self-reschedule가 동일 `workName`으로 `REPLACE`하는 것은, `cancel`이 같은 unique name을 찾아 취소해야 하므로 **이름 재사용이 필수**. 실행 직전 작업을 REPLACE하는 표준 패턴이며 레이스는 이론적 수준이라 유지(모니터링).

@@ -36,4 +36,10 @@ final class SyncStatusStore {
     static Map<String, ?> all(Context ctx) {
         return prefs(ctx).getAll();
     }
+
+    /** 소스 삭제/예약 해제 시 이력 정리 (잔존 누적 방지). */
+    static void remove(Context ctx, String id) {
+        if (id == null) return;
+        prefs(ctx).edit().remove(id).apply();
+    }
 }

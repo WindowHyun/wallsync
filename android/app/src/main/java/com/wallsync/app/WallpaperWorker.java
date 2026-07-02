@@ -64,7 +64,10 @@ public class WallpaperWorker extends Worker {
         } catch (Exception e) {
             String msg = e.getMessage() == null ? "알 수 없는 오류" : e.getMessage();
             SyncStatusStore.record(getApplicationContext(), id, false, System.currentTimeMillis(), msg);
-            notifyFailure(id, msg);
+            // 첫 실패는 백오프 재시도로 조용히 복구 시도 — 재시도(2회차)부터 알림해 일시 오류 노이즈 방지
+            if (getRunAttemptCount() >= 1) {
+                notifyFailure(id, msg);
+            }
             // 네트워크 일시 오류 등 → 다음 기회에 재시도.
             // (daily는 retry 시 재예약하지 않고, WorkManager 백오프로 같은 작업을 다시 시도)
             return Result.retry();

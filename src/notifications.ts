@@ -19,6 +19,11 @@ function notifId(s: string): number {
   return 100000 + (h % 900000);
 }
 
+// 알림이 무의미한 경기 상태 (취소·연기 등)
+const SKIP_STATUS = /취소|연기|중단|노게임|서스펜디드/;
+const TIME_RE = /^\d{1,2}:\d{2}$/;
+const FETCH_TIMEOUT_MS = 10000;
+
 /** 이전에 예약한 경기 알림을 모두 취소한다. */
 export async function cancelGameNotifications(): Promise<void> {
   try {
@@ -39,18 +44,30 @@ export async function scheduleGameNotifications(team: string, leadMinutes: numbe
 
   await cancelGameNotifications();
 
-  const res = await fetch(`${SCHED_BASE}?team=${encodeURIComponent(team)}&months=2`);
-  if (!res.ok) throw new Error("일정을 불러오지 못했습니다");
-  const data = (await res.json()) as SchedResponse;
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), FETCH_TIMEOUT_MS);
+  let data: SchedResponse;
+  try {
+    const res = await fetch(`${SCHED_BASE}?team=${encodeURIComponent(team)}&months=2`, { signal: ctl.signal });
+    if (!res.ok) throw new Error("일정을 불러오지 못했습니다");
+    data = (await res.json()) as SchedResponse;
+  } catch (e) {
+    if ((e as Error).name === "AbortError") throw new Error("일정 서버 응답이 없습니다");
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
 
   const now = Date.now();
   const notifs: LocalNotificationSchema[] = [];
   const ids: number[] = [];
 
   for (const g of data.games.slice(0, 30)) {
+    if (g.status && SKIP_STATUS.test(g.status)) continue; // 취소·연기 경기 제외
+    if (!TIME_RE.test(g.time)) continue; // 시간 미정 등 비정상 값 제외
     // 경기 시각은 KST 기준 → 타임존 명시해 안전하게 파싱
-    const at = new Date(`${g.date}T${g.time}:00+09:00`).getTime() - leadMinutes * 60000;
-    if (at <= now + 60000) continue; // 이미 지났거나 1분 내 임박
+    const at = new Date(`${g.date}T${g.time.padStart(5, "0")}:00+09:00`).getTime() - leadMinutes * 60000;
+    if (!Number.isFinite(at) || at <= now + 60000) continue; // 파싱 실패·이미 지남·1분 내 임박
     const id = notifId(g.date + g.time);
     if (ids.includes(id)) continue;
     ids.push(id);
