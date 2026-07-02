@@ -1,6 +1,7 @@
 package com.wallsync.app;
 
 import android.Manifest;
+import android.app.AlarmManager;
 import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
@@ -154,6 +155,7 @@ public class WallpaperPlugin extends Plugin {
             return;
         }
         WorkManager.getInstance(getContext()).cancelUniqueWork("wallsync_" + id);
+        SyncStatusStore.remove(getContext(), id); // 이력도 함께 정리
         call.resolve();
     }
 
@@ -194,6 +196,37 @@ public class WallpaperPlugin extends Plugin {
         JSObject ret = new JSObject();
         ret.put("granted", getPermissionState("notifications") == PermissionState.GRANTED);
         call.resolve(ret);
+    }
+
+    /** Android 12+ 정시(exact) 알람 허용 여부 — 경기 알림이 제시간에 오려면 필요 */
+    @PluginMethod
+    public void canScheduleExactAlarms(PluginCall call) {
+        boolean allowed = true;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            AlarmManager am = (AlarmManager) getContext().getSystemService(Context.ALARM_SERVICE);
+            allowed = am == null || am.canScheduleExactAlarms();
+        }
+        JSObject ret = new JSObject();
+        ret.put("allowed", allowed);
+        call.resolve(ret);
+    }
+
+    /** '알람 및 리마인더' 특별 접근 설정 화면 열기 (Android 12+) */
+    @PluginMethod
+    public void openExactAlarmSettings(PluginCall call) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+            call.resolve();
+            return;
+        }
+        try {
+            Intent intent = new Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,
+                    Uri.parse("package:" + getContext().getPackageName()));
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            getContext().startActivity(intent);
+            call.resolve();
+        } catch (Exception e) {
+            openAppDetails(call);
+        }
     }
 
     /** 현재 앱이 배터리 최적화 예외인지 확인 */
