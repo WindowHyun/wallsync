@@ -35,6 +35,8 @@ public class WallpaperWorker extends Worker {
 
     private static final String CHANNEL_ID = "wallsync_sync";
     private static final int NOTI_BASE_ID = 47000;
+    /** 일시 오류 최대 시도 횟수 — 초과 시 이번 회차 포기 (무한 재시도로 인한 배터리 낭비 방지). */
+    private static final int MAX_ATTEMPTS = 5;
 
     public WallpaperWorker(@NonNull Context context, @NonNull WorkerParameters params) {
         super(context, params);
@@ -64,12 +66,22 @@ public class WallpaperWorker extends Worker {
         } catch (Exception e) {
             String msg = e.getMessage() == null ? "알 수 없는 오류" : e.getMessage();
             SyncStatusStore.record(getApplicationContext(), id, false, System.currentTimeMillis(), msg);
-            // 첫 실패는 백오프 재시도로 조용히 복구 시도 — 재시도(2회차)부터 알림해 일시 오류 노이즈 방지
+
+            // 영구 오류(404·디코드 실패)거나 재시도 한도 도달 → 이번 회차는 포기.
+            // interval은 다음 주기에, daily는 다음 날 정시에 자연히 다시 시도된다.
+            boolean permanent = e instanceof WallpaperHelper.PermanentException;
+            if (permanent || getRunAttemptCount() >= MAX_ATTEMPTS - 1) {
+                notifyFailure(id, msg);
+                if ("daily".equals(mode)) {
+                    rescheduleDaily(); // 체인 유지 — 포기해도 다음 날 예약은 걸어둔다
+                }
+                return Result.failure();
+            }
+
+            // 일시 오류(네트워크 등): 백오프 재시도. 첫 실패는 조용히, 2회차부터 알림
             if (getRunAttemptCount() >= 1) {
                 notifyFailure(id, msg);
             }
-            // 네트워크 일시 오류 등 → 다음 기회에 재시도.
-            // (daily는 retry 시 재예약하지 않고, WorkManager 백오프로 같은 작업을 다시 시도)
             return Result.retry();
         }
     }

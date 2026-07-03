@@ -131,8 +131,11 @@ public class WallpaperPlugin extends Plugin {
                     .putString("mode", "interval")
                     .build();
 
+            // flex 창을 주기 후반 5~15분으로 좁혀 "N시간마다" 기대에 가깝게 실행
+            // (기본값은 주기 내 임의 시점이라 실행 시각이 크게 흔들림)
+            int flex = Math.min(15, Math.max(5, minutes / 4));
             PeriodicWorkRequest request = new PeriodicWorkRequest.Builder(
-                    WallpaperWorker.class, minutes, TimeUnit.MINUTES)
+                    WallpaperWorker.class, minutes, TimeUnit.MINUTES, flex, TimeUnit.MINUTES)
                     .setConstraints(constraints)
                     .setInputData(data)
                     .build();

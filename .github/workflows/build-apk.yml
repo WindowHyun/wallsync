@@ -37,6 +37,10 @@ jobs:
       - name: Type check
         run: npm run typecheck
 
+      # 웹 순수 로직 단위 테스트
+      - name: Run web tests
+        run: npm test
+
       # React → dist/
       - name: Build web app
         run: npm run build

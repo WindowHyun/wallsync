@@ -80,8 +80,13 @@ wallsync/
 │   ├── build-apk.yml          # push → Debug APK (Artifacts)
 │   └── release-apk.yml        # 태그 → 서명 Release APK
 ├── src/
-│   ├── App.tsx                # UI (목록·추가·예약)
+│   ├── App.tsx                # 조립·상태·핸들러
+│   ├── components/            # Editor·ScheduleModal·NotifModal·BackupModal·SourceCard
+│   ├── lib/                   # 순수 로직 (kbo·format·backup·active·schedule-plan) + *.test.ts
+│   ├── storage.ts             # localStorage 접근 계층
+│   ├── types.ts / theme.ts    # 도메인 타입 / 테마·구단색
 │   ├── wallpaper.ts           # 네이티브 플러그인 JS 브릿지
+│   ├── notifications.ts       # 경기 알림 (Capacitor LocalNotifications)
 │   └── main.tsx
 ├── android/                   # Capacitor 안드로이드 플랫폼 (커밋됨)
 │   └── app/src/main/java/com/wallsync/app/

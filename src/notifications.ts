@@ -1,27 +1,9 @@
-import { LocalNotifications, LocalNotificationSchema } from "@capacitor/local-notifications";
+import { LocalNotifications } from "@capacitor/local-notifications";
+import { planGameNotifications, SchedResponse } from "./lib/schedule-plan";
 
 // KBO 프로젝트의 일정 JSON API (CORS 허용)
 const SCHED_BASE = "https://kbo-wallpaper.vercel.app/api/schedule";
 const IDS_KEY = "wallsync.notif.ids";
-
-interface SchedGame {
-  date: string; time: string; weekday: string; home: boolean;
-  opponent: string; opponentEn: string; stadium: string; status: string;
-}
-interface SchedResponse {
-  team: { id: string; en: string; short: string; name: string };
-  games: SchedGame[];
-}
-
-function notifId(s: string): number {
-  let h = 0;
-  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
-  return 100000 + (h % 900000);
-}
-
-// 알림이 무의미한 경기 상태 (취소·연기 등)
-const SKIP_STATUS = /취소|연기|중단|노게임|서스펜디드/;
-const TIME_RE = /^\d{1,2}:\d{2}$/;
 const FETCH_TIMEOUT_MS = 10000;
 
 /** 이전에 예약한 경기 알림을 모두 취소한다. */
@@ -58,28 +40,17 @@ export async function scheduleGameNotifications(team: string, leadMinutes: numbe
     clearTimeout(timer);
   }
 
-  const now = Date.now();
-  const notifs: LocalNotificationSchema[] = [];
-  const ids: number[] = [];
-
-  for (const g of data.games.slice(0, 30)) {
-    if (g.status && SKIP_STATUS.test(g.status)) continue; // 취소·연기 경기 제외
-    if (!TIME_RE.test(g.time)) continue; // 시간 미정 등 비정상 값 제외
-    // 경기 시각은 KST 기준 → 타임존 명시해 안전하게 파싱
-    const at = new Date(`${g.date}T${g.time.padStart(5, "0")}:00+09:00`).getTime() - leadMinutes * 60000;
-    if (!Number.isFinite(at) || at <= now + 60000) continue; // 파싱 실패·이미 지남·1분 내 임박
-    const id = notifId(g.date + g.time);
-    if (ids.includes(id)) continue;
-    ids.push(id);
-    notifs.push({
-      id,
-      title: `⚾ ${data.team.short} 경기 ${leadMinutes}분 전`,
-      body: `${g.home ? "vs" : "@"} ${g.opponent} · ${g.time}${g.stadium ? ` · ${g.stadium}` : ""}`,
-      schedule: { at: new Date(at), allowWhileIdle: true },
+  const planned = planGameNotifications(data, leadMinutes, Date.now());
+  if (planned.length) {
+    await LocalNotifications.schedule({
+      notifications: planned.map((p) => ({
+        id: p.id,
+        title: p.title,
+        body: p.body,
+        schedule: { at: new Date(p.at), allowWhileIdle: true },
+      })),
     });
   }
-
-  if (notifs.length) await LocalNotifications.schedule({ notifications: notifs });
-  localStorage.setItem(IDS_KEY, JSON.stringify(ids));
-  return notifs.length;
+  localStorage.setItem(IDS_KEY, JSON.stringify(planned.map((p) => p.id)));
+  return planned.length;
 }
