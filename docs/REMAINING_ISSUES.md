@@ -78,6 +78,19 @@
 - **검증**: typecheck 클린 · vitest **41/41** · vite build 성공
 - **보류(다음 후보)**: C-1 알림 자동 연장 워커(네이티브 대규모), C-2 로테이션(F3), C-4 Wi-Fi/충전 제약(F5), A-4/A-6 구조 심화
 
+### ✅ 8차 수정 내역 — C-1 알림 자동 연장 (네이티브 파이프라인)
+> 경기 알림이 앱을 열어야만 연장되던 문제(B-1/B5)를 근본 해소.
+
+- **C-1** — 네이티브 백그라운드 알림 파이프라인 신설:
+  - `GameNotifyWorker`(WorkManager, 즉시 1회 + **매일 주기**): KBO 일정 API를 직접 fetch·파싱해 다가오는 경기를 AlarmManager로 예약. 앱이 꺼져 있어도 매일 재예약되어 알림이 끊기지 않음.
+  - `GameAlarmReceiver`: 예약 시각에 시스템이 깨워 알림 표시(채널·권한 가드).
+  - 필터 규칙(취소/연기 제외·HH:MM 검증·과거/중복 제외)은 `lib/schedule-plan.ts`(JS 테스트 명세)와 동일하게 미러링.
+  - 플러그인 `scheduleGameWorker`/`cancelGameWorker`/`hasNotificationPermission` 추가. 매니페스트에 `GameAlarmReceiver`·`SCHEDULE_EXACT_ALARM`·`RECEIVE_BOOT_COMPLETED` 추가.
+  - JS `notifications.ts`는 LocalNotifications 대신 네이티브 워커로 위임(중복 알림 방지). 런타임 번들에서 LocalNotifications 제거.
+- **A-2 대체됨** — JS가 더 이상 앱 열 때 일정을 fetch하지 않으므로 `sched-cache`는 무효가 되어 제거. 네이티브 워커가 매일 1회만 받으므로 A-2의 "매 실행 fetch" 문제는 구조적으로 해소.
+- **검증**: typecheck 클린 · vitest 35/35 · vite build 성공. 네이티브 컴파일은 PR CI에서 확인.
+- **실기기 확인 필요(코드로 검증 불가)**: AlarmManager 실발화·리시버 알림 표시, 재부팅 후 복구(주기 워커가 하루 내 재설정), `SCHEDULE_EXACT_ALARM` 미허용 시 근사 예약 폴백.
+
 ### ☑ 설계상 수용(미수정) 결정
 - **R3** — 배터리 최적화 직접 요청은 Play 제한 권한. 현재 배포가 사이드로드(Debug APK)라 유지하며, **Play Store 정식 배포 착수 시점**에 직접 요청 제거 + `openBatterySettings()` 안내로 전환(폴백 경로 존재).
 - **R4** — daily 워커의 self-reschedule가 동일 `workName`으로 `REPLACE`하는 것은, `cancel`이 같은 unique name을 찾아 취소해야 하므로 **이름 재사용이 필수**. 실행 직전 작업을 REPLACE하는 표준 패턴이며 레이스는 이론적 수준이라 유지(모니터링).

@@ -1,0 +1,24 @@
+package com.wallsync.app;
+
+/** 경기 알림 파이프라인이 공유하는 상수. */
+final class GameNotifyConst {
+    private GameNotifyConst() {}
+
+    /** 경기 알림 채널 (Worker·Receiver 공용). */
+    static final String CHANNEL_ID = "wallsync_games";
+    static final String CHANNEL_NAME = "경기 알림";
+
+    /** 예약된 알람 id 저장 (취소용). */
+    static final String PREFS = "wallsync_game_alarms";
+    static final String IDS_KEY = "alarm_ids";
+
+    static final String UNIQUE_PERIODIC = "wallsync_gamenotify";
+    static final String UNIQUE_NOW = "wallsync_gamenotify_now";
+
+    /** 문자열 → 결정적 알림 id (100000~999999). */
+    static int notifId(String s) {
+        int h = 0;
+        for (int i = 0; i < s.length(); i++) h = h * 31 + s.charAt(i);
+        return 100000 + (Math.abs(h) % 900000);
+    }
+}

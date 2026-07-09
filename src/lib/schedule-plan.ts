@@ -1,4 +1,6 @@
-// 경기 알림 계획 — 순수 로직 (Capacitor 비의존, 단위 테스트 대상)
+// 경기 알림 필터 규칙 — 순수 로직 (단위 테스트로 검증하는 명세).
+// 실제 런타임 예약은 네이티브 GameNotifyWorker(Java)가 담당하며 아래와 동일한 규칙
+// (취소·연기 제외, HH:MM 검증, 과거·중복 제외)을 미러링한다. 이 파일은 그 계약의 기준이다.
 
 export interface SchedGame {
   date: string; time: string; weekday: string; home: boolean;

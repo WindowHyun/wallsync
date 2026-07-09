@@ -33,10 +33,16 @@ export interface WallpaperPlugin {
   getSyncStatus(): Promise<{ results: SyncResult[] }>;
   /** 알림 권한 요청 (Android 13+). 그 이하 버전은 항상 granted */
   requestNotificationPermission(): Promise<{ granted: boolean }>;
+  /** 알림 권한 보유 여부 (프롬프트 없이 조회만) */
+  hasNotificationPermission(): Promise<{ granted: boolean }>;
   /** Android 12+ 정시(exact) 알람 허용 여부 — 경기 알림 정시 발화에 필요 */
   canScheduleExactAlarms(): Promise<{ allowed: boolean }>;
   /** '알람 및 리마인더' 특별 접근 설정 화면 열기 (Android 12+) */
   openExactAlarmSettings(): Promise<void>;
+  /** 경기 알림 자동 연장 예약 (매일 백그라운드 워커가 재예약 → 앱이 꺼져도 유지) */
+  scheduleGameWorker(options: { team: string; lead: number }): Promise<void>;
+  /** 경기 알림 워커·예약 알람 전부 취소 */
+  cancelGameWorker(): Promise<void>;
   /** 배터리 최적화 예외 여부 확인 */
   isIgnoringBatteryOptimizations(): Promise<{ ignoring: boolean }>;
   /** 배터리 최적화 해제 시스템 팝업 */
