@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { Capacitor } from "@capacitor/core";
 import { Wallpaper, WallpaperTarget, SyncResult } from "./wallpaper";
-import { scheduleGameNotifications, cancelGameNotifications } from "./notifications";
+import { scheduleGameNotifications, cancelGameNotifications, hasNotifPermission } from "./notifications";
 import { Source, Schedule, NotifSettings, BackupExtra, ToastMsg, ToastAction } from "./types";
 import { C, teamColor } from "./theme";
 import { rel, targetLabel } from "./lib/format";
@@ -53,12 +53,18 @@ export default function App() {
   }, []);
 
   // 앱을 열 때 알림이 켜져 있으면 다가오는 경기로 다시 예약
-  // (실패를 조용히 삼키면 '켜짐' 표시와 실제 예약이 어긋나므로 사용자에게 알림)
   useEffect(() => {
-    if (loaded && native && notif.enabled) {
-      scheduleGameNotifications(notif.team, notif.lead).catch(() =>
-        toast("경기 알림 재예약 실패 — 🔔 설정을 다시 확인해주세요", "warn"));
-    }
+    if (!(loaded && native && notif.enabled)) return;
+    (async () => {
+      // 권한이 이미 거부됐다면 조용히 스킵 — 실행할 때마다 실패 토스트로 괴롭히지 않는다
+      if (!(await hasNotifPermission())) return;
+      try {
+        await scheduleGameNotifications(notif.team, notif.lead);
+        checkExactAlarm();
+      } catch {
+        toast("경기 알림 재예약 실패 — 🔔 설정을 다시 확인해주세요", "warn");
+      }
+    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loaded]);
 
@@ -240,6 +246,29 @@ export default function App() {
     });
   };
 
+  const [applying, setApplying] = useState(false);
+
+  // 자동 갱신 소스들을 지금 즉시 다시 내려받아 적용 (KBO는 매일 이미지가 바뀌므로 강제 최신화)
+  const handleApplyAll = async () => {
+    if (!native) { toast("실제 적용은 설치된 앱에서만 동작합니다", "warn"); return; }
+    const autos = sources.filter((s) => s.auto);
+    if (autos.length === 0) return;
+    setApplying(true);
+    let ok = 0;
+    const now = Date.now();
+    for (const s of autos) {
+      try { await Wallpaper.apply({ url: s.url, target: s.target }); ok++; }
+      catch { /* 개별 실패는 넘어가고 계속 */ }
+    }
+    if (ok > 0) {
+      const done = new Set(autos.map((s) => s.id));
+      setSources((p) => p.map((x) => (done.has(x.id) ? { ...x, lastApplied: now } : x)));
+      setActiveId(autos[autos.length - 1].id);
+    }
+    setApplying(false);
+    toast(ok === autos.length ? `✓ ${ok}개 갱신 완료` : `${ok}/${autos.length}개 갱신 (일부 실패)`, ok === autos.length ? "success" : "warn");
+  };
+
   const autoCount = sources.filter((s) => s.auto).length;
   const { src: activeSrc, time: activeTime } = resolveActive(sources, activeId, syncStatus);
 
@@ -288,6 +317,7 @@ export default function App() {
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             {autoCount > 0 && <div style={{ padding: "6px 12px", borderRadius: 10, background: C.tealSoft, border: `1px solid ${C.teal}`, color: C.teal, fontSize: 12, fontWeight: 700 }}>⚡ {autoCount}개 자동</div>}
+            {autoCount > 0 && <button onClick={handleApplyAll} disabled={applying} title="자동 소스 지금 갱신" aria-label="자동 소스 지금 갱신" style={{ background: "transparent", border: `1px solid ${C.border}`, borderRadius: 11, padding: "9px 12px", color: C.sub, fontSize: 13, fontWeight: 700, cursor: applying ? "default" : "pointer", opacity: applying ? 0.5 : 1 }}>{applying ? "…" : "🔄 갱신"}</button>}
             <button onClick={() => setShowNotif(true)} title="경기 알림" aria-label="경기 알림 설정" style={{ background: notif.enabled ? C.tealSoft : "transparent", border: `1px solid ${notif.enabled ? C.teal : C.border}`, borderRadius: 11, padding: "9px 12px", color: notif.enabled ? C.teal : C.sub, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>🔔</button>
             {sources.length > 0 && <button onClick={() => setShowBackup(true)} title="백업 / 복원" style={{ background: "transparent", border: `1px solid ${C.border}`, borderRadius: 11, padding: "9px 14px", color: C.sub, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>⤓ 백업</button>}
             <button onClick={() => setEditor({ editing: null })} style={{ background: `linear-gradient(135deg,${C.accent},#7C3AED)`, border: "none", borderRadius: 11, padding: "9px 18px", color: "white", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>+ 추가</button>
