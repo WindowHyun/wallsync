@@ -162,6 +162,60 @@ public class WallpaperPlugin extends Plugin {
         call.resolve();
     }
 
+    /** 경기 알림 자동 연장 예약 — 즉시 1회 + 매일 워커. 앱이 꺼져 있어도 계속 재예약된다. */
+    @PluginMethod
+    public void scheduleGameWorker(PluginCall call) {
+        String team = call.getString("team");
+        Integer lead = call.getInt("lead", 60);
+        if (team == null || team.isEmpty()) {
+            call.reject("team 파라미터가 필요합니다");
+            return;
+        }
+        if (lead == null || lead < 1) lead = 60;
+
+        Data data = new Data.Builder()
+                .putString("team", team)
+                .putInt("lead", lead)
+                .build();
+        Constraints net = new Constraints.Builder()
+                .setRequiredNetworkType(NetworkType.CONNECTED)
+                .build();
+        WorkManager wm = WorkManager.getInstance(getContext());
+
+        // 지금 즉시 한 번 예약 갱신
+        OneTimeWorkRequest now = new OneTimeWorkRequest.Builder(GameNotifyWorker.class)
+                .setInputData(data).setConstraints(net).build();
+        wm.enqueueUniqueWork(GameNotifyConst.UNIQUE_NOW, ExistingWorkPolicy.REPLACE, now);
+
+        // 매일 재예약 (다가오는 경기가 소진되지 않게 연장)
+        PeriodicWorkRequest daily = new PeriodicWorkRequest.Builder(
+                GameNotifyWorker.class, 1, TimeUnit.DAYS)
+                .setInputData(data).setConstraints(net).build();
+        wm.enqueueUniquePeriodicWork(GameNotifyConst.UNIQUE_PERIODIC, ExistingPeriodicWorkPolicy.UPDATE, daily);
+
+        call.resolve();
+    }
+
+    /** 경기 알림 워커·예약 알람 전부 취소 */
+    @PluginMethod
+    public void cancelGameWorker(PluginCall call) {
+        WorkManager wm = WorkManager.getInstance(getContext());
+        wm.cancelUniqueWork(GameNotifyConst.UNIQUE_PERIODIC);
+        wm.cancelUniqueWork(GameNotifyConst.UNIQUE_NOW);
+        GameNotifyWorker.cancelAllAlarms(getContext());
+        call.resolve();
+    }
+
+    /** 알림 권한 보유 여부 (프롬프트 없이 조회만) */
+    @PluginMethod
+    public void hasNotificationPermission(PluginCall call) {
+        boolean granted = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU
+                || getPermissionState("notifications") == PermissionState.GRANTED;
+        JSObject ret = new JSObject();
+        ret.put("granted", granted);
+        call.resolve(ret);
+    }
+
     /** 각 소스의 마지막 자동 갱신 결과 조회 (워커가 SharedPreferences에 기록) */
     @PluginMethod
     public void getSyncStatus(PluginCall call) {

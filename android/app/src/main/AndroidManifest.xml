@@ -24,6 +24,11 @@
             </intent-filter>
 
         </activity>
+
+        <!-- 경기 시작 전 알림 (AlarmManager가 예약 시각에 호출) -->
+        <receiver
+            android:name=".GameAlarmReceiver"
+            android:exported="false" />
     </application>
 
     <!-- Permissions -->
@@ -33,4 +38,7 @@
     <uses-permission android:name="android.permission.SET_WALLPAPER" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- 경기 시작 정시 알림 (미허용 시 근사 예약으로 폴백) -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 </manifest>

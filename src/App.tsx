@@ -129,10 +129,10 @@ export default function App() {
     try {
       if (next.enabled) {
         // 예약이 실제로 성공했을 때만 '켜짐'으로 저장 (표시=실제 일치)
-        const n = await scheduleGameNotifications(next.team, next.lead);
+        await scheduleGameNotifications(next.team, next.lead);
         persistNotif(next);
-        toast(n > 0 ? `🔔 경기 알림 ${n}건 예약됨` : "다가오는 경기가 없습니다", n > 0 ? "success" : "warn");
-        if (n > 0) checkExactAlarm();
+        toast("🔔 경기 알림 켜짐 — 매일 자동 예약됩니다");
+        checkExactAlarm();
       } else {
         await cancelGameNotifications();
         persistNotif(next);

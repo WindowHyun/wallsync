@@ -45,7 +45,7 @@ export function NotifModal({ settings, onSave, onClose }: { settings: NotifSetti
             ))}
           </div>
           <div style={{ marginTop: 12, fontSize: 11, color: C.muted, lineHeight: 1.5 }}>
-            ※ 앱을 열 때 다가오는 경기 기준으로 다시 예약됩니다. 일정 출처: KBO 공식.
+            ※ 매일 백그라운드로 다가오는 경기를 자동 예약합니다(앱을 열지 않아도 유지). 일정 출처: KBO 공식.
           </div>
         </div>
 
