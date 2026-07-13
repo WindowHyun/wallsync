@@ -1,4 +1,5 @@
 import { Source, NotifSettings } from "./types";
+import { sanitizeSources } from "./lib/sanitize";
 
 // ─── 로컬 저장 레이어 — 키와 접근을 한 곳에서 관리 ─────────────────────────────────────
 const STORE_KEY = "wallsync.sources.v1";
@@ -6,10 +7,17 @@ const ACTIVE_KEY = "wallsync.active.v1";
 const NOTIF_KEY = "wallsync.notif.v1";
 
 export function loadSources(): Source[] {
+  const raw = localStorage.getItem(STORE_KEY);
+  if (!raw) return [];
   try {
-    const raw = localStorage.getItem(STORE_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch { return []; }
+    const sources = sanitizeSources(JSON.parse(raw));
+    if (sources === null) throw new Error("not an array");
+    return sources;
+  } catch {
+    // 손상 데이터를 조용히 버리지 않고 복구용으로 보존해둔다
+    try { localStorage.setItem(STORE_KEY + ".corrupt", raw); } catch { /* ignore */ }
+    return [];
+  }
 }
 export function saveSources(sources: Source[]) {
   localStorage.setItem(STORE_KEY, JSON.stringify(sources));

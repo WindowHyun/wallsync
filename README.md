@@ -86,14 +86,18 @@ wallsync/
 │   ├── storage.ts             # localStorage 접근 계층
 │   ├── types.ts / theme.ts    # 도메인 타입 / 테마·구단색
 │   ├── wallpaper.ts           # 네이티브 플러그인 JS 브릿지
-│   ├── notifications.ts       # 경기 알림 (Capacitor LocalNotifications)
+│   ├── notifications.ts       # 경기 알림 (네이티브 GameNotifyWorker 브릿지)
 │   └── main.tsx
 ├── android/                   # Capacitor 안드로이드 플랫폼 (커밋됨)
 │   └── app/src/main/java/com/wallsync/app/
 │       ├── MainActivity.java      # 플러그인 등록
-│       ├── WallpaperPlugin.java   # apply / schedule / cancel
-│       ├── WallpaperWorker.java   # 백그라운드 갱신 워커
-│       └── WallpaperHelper.java   # URL 다운로드 + WallpaperManager
+│       ├── WallpaperPlugin.java   # apply / schedule / cancel / 경기알림 워커 등록
+│       ├── WallpaperWorker.java   # 백그라운드 배경화면 갱신 워커
+│       ├── WallpaperHelper.java   # URL 다운로드 + WallpaperManager
+│       ├── GameNotifyWorker.java  # 매일 KBO 일정 fetch → AlarmManager 예약
+│       ├── GameAlarmReceiver.java # 예약 시각에 경기 알림 표시
+│       ├── BootReceiver.java      # 재부팅 직후 경기 알람 복구
+│       └── ScheduleMath.java      # 순수 계산 로직 (JVM 단위 테스트 대상)
 ├── capacitor.config.ts
 ├── package.json
 └── vite.config.ts
