@@ -173,6 +173,15 @@ public class WallpaperPlugin extends Plugin {
         }
         if (lead == null || lead < 1) lead = 60;
 
+        // 재부팅 시 AlarmManager 알람이 모두 지워지므로, BootReceiver가 즉시 재예약할 수
+        // 있도록 설정을 네이티브에도 저장해둔다.
+        getContext().getSharedPreferences(GameNotifyConst.PREFS, Context.MODE_PRIVATE)
+                .edit()
+                .putBoolean(GameNotifyConst.CFG_ENABLED, true)
+                .putString(GameNotifyConst.CFG_TEAM, team)
+                .putInt(GameNotifyConst.CFG_LEAD, lead)
+                .apply();
+
         Data data = new Data.Builder()
                 .putString("team", team)
                 .putInt("lead", lead)
@@ -203,6 +212,9 @@ public class WallpaperPlugin extends Plugin {
         wm.cancelUniqueWork(GameNotifyConst.UNIQUE_PERIODIC);
         wm.cancelUniqueWork(GameNotifyConst.UNIQUE_NOW);
         GameNotifyWorker.cancelAllAlarms(getContext());
+        // 부팅 복구도 비활성화
+        getContext().getSharedPreferences(GameNotifyConst.PREFS, Context.MODE_PRIVATE)
+                .edit().putBoolean(GameNotifyConst.CFG_ENABLED, false).apply();
         call.resolve();
     }
 

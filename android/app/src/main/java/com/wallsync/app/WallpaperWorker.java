@@ -3,7 +3,9 @@ package com.wallsync.app;
 import android.annotation.SuppressLint;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
+import android.app.PendingIntent;
 import android.content.Context;
+import android.content.Intent;
 import android.os.Build;
 
 import androidx.annotation.NonNull;
@@ -142,14 +144,21 @@ public class WallpaperWorker extends Worker {
                 }
             }
 
+            int notiId = NOTI_BASE_ID + (id == null ? 0 : Math.abs(id.hashCode()) % 1000);
+
+            // 탭하면 앱이 열려 실패 원인을 확인할 수 있도록 contentIntent 부착
+            Intent open = new Intent(ctx, MainActivity.class);
+            open.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+            PendingIntent contentIntent = PendingIntent.getActivity(ctx, notiId, open,
+                    PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+
             NotificationCompat.Builder b = new NotificationCompat.Builder(ctx, CHANNEL_ID)
                     .setSmallIcon(android.R.drawable.stat_notify_error)
                     .setContentTitle("배경화면 자동 갱신 실패")
                     .setContentText(reason)
+                    .setContentIntent(contentIntent)
                     .setAutoCancel(true)
                     .setPriority(NotificationCompat.PRIORITY_LOW);
-
-            int notiId = NOTI_BASE_ID + (id == null ? 0 : Math.abs(id.hashCode()) % 1000);
             nm.notify(notiId, b.build());
         } catch (Exception ignored) {
             // 권한 미부여(SecurityException) 등 → 상태는 이미 기록되었으므로 무시

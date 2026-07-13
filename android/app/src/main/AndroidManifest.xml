@@ -29,6 +29,15 @@
         <receiver
             android:name=".GameAlarmReceiver"
             android:exported="false" />
+
+        <!-- 재부팅 시 경기 알람 복구 (시스템 브로드캐스트라 exported=false로도 수신됨) -->
+        <receiver
+            android:name=".BootReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
     </application>
 
     <!-- Permissions -->

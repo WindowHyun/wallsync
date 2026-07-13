@@ -254,18 +254,20 @@ export default function App() {
     const autos = sources.filter((s) => s.auto);
     if (autos.length === 0) return;
     setApplying(true);
-    let ok = 0;
     const now = Date.now();
+    const okSources: Source[] = [];
     for (const s of autos) {
-      try { await Wallpaper.apply({ url: s.url, target: s.target }); ok++; }
+      try { await Wallpaper.apply({ url: s.url, target: s.target }); okSources.push(s); }
       catch { /* 개별 실패는 넘어가고 계속 */ }
     }
-    if (ok > 0) {
-      const done = new Set(autos.map((s) => s.id));
+    // 성공한 소스만 적용 이력·적용중 배지에 반영 (실패한 카드가 "방금 적용"으로 보이지 않게)
+    if (okSources.length > 0) {
+      const done = new Set(okSources.map((s) => s.id));
       setSources((p) => p.map((x) => (done.has(x.id) ? { ...x, lastApplied: now } : x)));
-      setActiveId(autos[autos.length - 1].id);
+      setActiveId(okSources[okSources.length - 1].id);
     }
     setApplying(false);
+    const ok = okSources.length;
     toast(ok === autos.length ? `✓ ${ok}개 갱신 완료` : `${ok}/${autos.length}개 갱신 (일부 실패)`, ok === autos.length ? "success" : "warn");
   };
 

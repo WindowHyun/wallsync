@@ -12,6 +12,11 @@ final class GameNotifyConst {
     static final String PREFS = "wallsync_game_alarms";
     static final String IDS_KEY = "alarm_ids";
 
+    /** 알림 설정 (재부팅 직후 BootReceiver가 읽어 즉시 재예약하기 위해 네이티브에도 보관). */
+    static final String CFG_ENABLED = "cfg_enabled";
+    static final String CFG_TEAM = "cfg_team";
+    static final String CFG_LEAD = "cfg_lead";
+
     static final String UNIQUE_PERIODIC = "wallsync_gamenotify";
     static final String UNIQUE_NOW = "wallsync_gamenotify_now";
 
