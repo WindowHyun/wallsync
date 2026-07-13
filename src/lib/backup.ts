@@ -1,13 +1,13 @@
-import { Source, NotifSettings, BackupExtra } from "../types";
+import { Source, NotifSettings, BackupExtra, ActiveMap } from "../types";
 import { sanitizeSources } from "./sanitize";
 
-/** v2 백업 직렬화 — 소스 목록 + 경기알림 설정 + 적용중 상태 */
-export function serializeBackup(sources: Source[], notif: NotifSettings, activeId: string | null): string {
-  return JSON.stringify({ version: 2, sources, notif, activeId }, null, 2);
+/** v3 백업 직렬화 — 소스 목록 + 경기알림 설정 + 화면별 적용중 상태 */
+export function serializeBackup(sources: Source[], notif: NotifSettings, active: ActiveMap): string {
+  return JSON.stringify({ version: 3, sources, notif, active }, null, 2);
 }
 
 /**
- * 백업 파싱·검증. v1(소스 배열)과 v2({ sources, notif, activeId }) 모두 수용.
+ * 백업 파싱·검증. v1(소스 배열)·v2(activeId)·v3(active 맵) 모두 수용.
  * 형식 오류·유효 항목 0개면 throw.
  */
 export function parseBackup(text: string): { sources: Source[]; extra: BackupExtra } {
@@ -27,7 +27,15 @@ export function parseBackup(text: string): { sources: Source[]; extra: BackupExt
         && typeof n.lead === "number" && Number.isFinite(n.lead) && n.lead >= 1) {
       extra.notif = { enabled: n.enabled, team: n.team, lead: n.lead };
     }
-    if (typeof parsed.activeId === "string" || parsed.activeId === null) {
+    const a = parsed.active;
+    if (a && typeof a === "object" && !Array.isArray(a)) {
+      // v3 — 화면별 적용중
+      extra.active = {
+        home: typeof a.home === "string" ? a.home : null,
+        lock: typeof a.lock === "string" ? a.lock : null,
+      };
+    } else if (typeof parsed.activeId === "string" || parsed.activeId === null) {
+      // v2 — 단일 activeId (복원 시 소스 target 기준으로 화면별 매핑)
       extra.activeId = parsed.activeId;
     }
   }

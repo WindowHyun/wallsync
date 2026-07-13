@@ -2,10 +2,10 @@ import { useState, useEffect, useCallback } from "react";
 import { Capacitor } from "@capacitor/core";
 import { Wallpaper, WallpaperTarget, SyncResult } from "./wallpaper";
 import { scheduleGameNotifications, cancelGameNotifications, hasNotifPermission } from "./notifications";
-import { Source, Schedule, NotifSettings, BackupExtra, ToastMsg, ToastAction } from "./types";
+import { Source, Schedule, NotifSettings, BackupExtra, ActiveMap, ToastMsg, ToastAction } from "./types";
 import { C, teamColor } from "./theme";
 import { rel, targetLabel } from "./lib/format";
-import { resolveActive } from "./lib/active";
+import { resolveActiveScreens, markActive, clearActiveId, activeFromLegacy } from "./lib/active";
 import { uid } from "./lib/uid";
 import * as store from "./storage";
 import { Editor } from "./components/Editor";
@@ -40,14 +40,22 @@ export default function App() {
   const [loaded, setLoaded] = useState(false);
   const [battOk, setBattOk] = useState<boolean | null>(null);
   const [syncStatus, setSyncStatus] = useState<Record<string, SyncResult>>({});
-  const [activeId, setActiveId] = useState<string | null>(null);
+  const [active, setActive] = useState<ActiveMap>({ home: null, lock: null });
   const [showNotif, setShowNotif] = useState(false);
   const [notif, setNotif] = useState<NotifSettings>({ enabled: false, team: "KIA", lead: 60 });
   const [notifSaved, setNotifSaved] = useState(false); // 사용자가 알림 설정을 저장한 적 있는지
 
   useEffect(() => {
-    setSources(store.loadSources());
-    setActiveId(store.loadActiveId());
+    const loadedSources = store.loadSources();
+    setSources(loadedSources);
+    // 화면별(v2) 적용중 상태 로드 — 없으면 구버전 단일 activeId에서 마이그레이션
+    const m = store.loadActiveMap();
+    if (m) {
+      setActive(m);
+    } else {
+      const legacy = store.loadLegacyActiveId();
+      if (legacy) { setActive(activeFromLegacy(loadedSources, legacy)); store.clearLegacyActiveId(); }
+    }
     const n = store.loadNotif();
     if (n) { setNotif(n); setNotifSaved(true); }
     setLoaded(true);
@@ -94,7 +102,7 @@ export default function App() {
   }, [refreshSync, checkBattery]);
 
   useEffect(() => { if (loaded) store.saveSources(sources); }, [sources, loaded]);
-  useEffect(() => { if (loaded) store.saveActiveId(activeId); }, [activeId, loaded]);
+  useEffect(() => { if (loaded) store.saveActiveMap(active); }, [active, loaded]);
 
   const toast = useCallback((msg: string, type: ToastMsg["type"] = "success", action?: ToastAction) => {
     const id = uid();
@@ -147,13 +155,18 @@ export default function App() {
     try {
       await Wallpaper.apply({ url: s.url, target: s.target });
       setSources((p) => p.map((x) => (x.id === s.id ? { ...x, lastApplied: Date.now() } : x)));
-      setActiveId(s.id);
+      setActive((p) => markActive(p, s.id, s.target));
       toast("✓ 배경화면 적용됨");
     } catch (e) { toast((e as Error).message || "적용 실패", "error"); }
   };
 
   const handleTarget = async (id: string, target: WallpaperTarget) => {
     setSources((p) => p.map((x) => (x.id === id ? { ...x, target } : x)));
+    // 더 이상 덮지 않는 화면의 적용중 기록은 비운다 (예: 홈 적용중이던 소스를 잠금 전용으로 변경)
+    setActive((p) => ({
+      home: p.home === id && target === "lock" ? null : p.home,
+      lock: p.lock === id && target === "home" ? null : p.lock,
+    }));
     // 자동 갱신이 켜진 소스라면 백그라운드 작업도 새 대상으로 재등록 (표시값=실제동작 일치)
     const s = sources.find((x) => x.id === id);
     if (native && s && s.auto && s.schedule) {
@@ -168,7 +181,7 @@ export default function App() {
       const urlChanged = prev.url !== s.url;
       const next = urlChanged ? { ...s, lastApplied: null } : s;
       setSources((p) => p.map((x) => (x.id === s.id ? next : x)));
-      if (urlChanged && activeId === s.id) setActiveId(null);
+      if (urlChanged) setActive((p) => clearActiveId(p, s.id));
       if (native && next.auto && next.schedule) {
         try { await scheduleNative(next.id, next.url, next.target, next.schedule); } catch { /* ignore */ }
       }
@@ -216,9 +229,15 @@ export default function App() {
       } catch { /* ignore */ }
     }
     setSources(imported);
-    // v2 백업이면 적용중·경기알림 설정도 복원
-    if (extra.activeId !== undefined) {
-      setActiveId(extra.activeId && imported.some((s) => s.id === extra.activeId) ? extra.activeId : null);
+    // v3(화면별 active)·v2(단일 activeId) 백업이면 적용중 상태도 복원
+    if (extra.active) {
+      const a = extra.active;
+      setActive({
+        home: a.home && imported.some((s) => s.id === a.home) ? a.home : null,
+        lock: a.lock && imported.some((s) => s.id === a.lock) ? a.lock : null,
+      });
+    } else if (extra.activeId !== undefined) {
+      setActive(activeFromLegacy(imported, extra.activeId));
     }
     if (extra.notif) {
       persistNotif(extra.notif);
@@ -232,7 +251,7 @@ export default function App() {
   const handleDelete = (s: Source) => {
     const idx = sources.findIndex((x) => x.id === s.id);
     setSources((p) => p.filter((x) => x.id !== s.id));
-    if (activeId === s.id) setActiveId(null);
+    setActive((p) => clearActiveId(p, s.id));
     if (native) { Wallpaper.cancel({ id: s.id }).catch(() => {}); }
     toast(`"${s.name}" 삭제됨`, "warn", {
       label: "실행취소",
@@ -265,7 +284,7 @@ export default function App() {
     if (okSources.length > 0) {
       const done = new Set(okSources.map((s) => s.id));
       setSources((p) => p.map((x) => (done.has(x.id) ? { ...x, lastApplied: now } : x)));
-      setActiveId(okSources[okSources.length - 1].id);
+      setActive((p) => okSources.reduce((m, s) => markActive(m, s.id, s.target), p));
     }
     setApplying(false);
     const ok = okSources.length;
@@ -273,7 +292,22 @@ export default function App() {
   };
 
   const autoCount = sources.filter((s) => s.auto).length;
-  const { src: activeSrc, time: activeTime } = resolveActive(sources, activeId, syncStatus);
+  const screens = resolveActiveScreens(sources, active, syncStatus);
+  // 히어로 표시용 행 — 홈/잠금이 같은 소스면 한 줄로 합침
+  const heroRows =
+    screens.home.src && screens.home.src.id === screens.lock.src?.id
+      ? [{ label: "홈+잠금", src: screens.home.src, time: Math.max(screens.home.time, screens.lock.time) }]
+      : [
+          ...(screens.home.src ? [{ label: "홈 화면", src: screens.home.src, time: screens.home.time }] : []),
+          ...(screens.lock.src ? [{ label: "잠금 화면", src: screens.lock.src, time: screens.lock.time }] : []),
+        ];
+  // 카드 배지용 — 소스가 적용중인 화면 목록
+  const activeScreensOf = (id: string): ("home" | "lock")[] => {
+    const r: ("home" | "lock")[] = [];
+    if (screens.home.src?.id === id) r.push("home");
+    if (screens.lock.src?.id === id) r.push("lock");
+    return r;
+  };
 
   // 알림 설정을 저장한 적 없으면 첫 KBO 소스의 팀을 기본 응원팀으로 제안
   const notifForModal = notifSaved
@@ -309,7 +343,7 @@ export default function App() {
 
       {editor && <Editor editing={editor.editing} onSubmit={handleEditorSubmit} onClose={() => setEditor(null)} />}
       {showNotif && <NotifModal settings={notifForModal} onSave={saveNotif} onClose={() => setShowNotif(false)} />}
-      {showBackup && <BackupModal sources={sources} notif={notif} activeId={activeId} onImport={handleImport} onClose={() => setShowBackup(false)} toast={toast} />}
+      {showBackup && <BackupModal sources={sources} notif={notif} active={active} onImport={handleImport} onClose={() => setShowBackup(false)} toast={toast} />}
       {schedFor && <ScheduleModal src={schedFor} onSave={(auto, s) => handleSchedSave(schedFor.id, auto, s)} onTest={() => handleApply(schedFor)} onClose={() => setSchedFor(null)} />}
 
       <div style={{ maxWidth: 760, margin: "0 auto", padding: "24px 18px 60px" }}>
@@ -354,17 +388,17 @@ export default function App() {
           </div>
         )}
 
-        {/* 현재 적용 중 */}
-        {activeSrc && (
-          <div style={{ display: "flex", gap: 12, alignItems: "center", margin: "14px 0 4px", padding: 12, borderRadius: 14, background: C.surface, border: `1px solid ${teamColor(activeSrc)}55` }}>
-            <img src={activeSrc.url} alt="" style={{ width: 46, height: 82, objectFit: "cover", borderRadius: 8, border: `1px solid ${C.border}`, flexShrink: 0 }} onError={(e) => { (e.target as HTMLImageElement).style.opacity = "0.2"; }} />
+        {/* 현재 적용 중 — 홈/잠금 화면별 */}
+        {heroRows.map((row) => (
+          <div key={row.label} style={{ display: "flex", gap: 12, alignItems: "center", margin: "14px 0 4px", padding: 12, borderRadius: 14, background: C.surface, border: `1px solid ${teamColor(row.src)}55` }}>
+            <img src={row.src.url} alt="" style={{ width: 46, height: 82, objectFit: "cover", borderRadius: 8, border: `1px solid ${C.border}`, flexShrink: 0 }} onError={(e) => { (e.target as HTMLImageElement).style.opacity = "0.2"; }} />
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 10, color: C.muted, letterSpacing: 1, fontWeight: 700 }}>현재 적용 중</div>
-              <div style={{ fontSize: 15, fontWeight: 800, color: teamColor(activeSrc), overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{activeSrc.name}</div>
-              <div style={{ fontSize: 11, color: C.sub }}>{activeTime ? `${rel(activeTime)} 적용` : "미적용"} · {targetLabel(activeSrc.target)}</div>
+              <div style={{ fontSize: 10, color: C.muted, letterSpacing: 1, fontWeight: 700 }}>현재 적용 중 · {row.label}</div>
+              <div style={{ fontSize: 15, fontWeight: 800, color: teamColor(row.src), overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.src.name}</div>
+              <div style={{ fontSize: 11, color: C.sub }}>{row.time ? `${rel(row.time)} 적용` : "미적용"} · {targetLabel(row.src.target)}</div>
             </div>
           </div>
-        )}
+        ))}
 
         <div style={{ marginTop: 18 }}>
           {sources.length === 0 ? (
@@ -376,7 +410,7 @@ export default function App() {
           ) : (
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 14 }}>
               {sources.map((s) => (
-                <SourceCard key={s.id} src={s} sync={syncStatus[s.id]} active={s.id === activeSrc?.id}
+                <SourceCard key={s.id} src={s} sync={syncStatus[s.id]} activeOn={activeScreensOf(s.id)}
                   onApply={handleApply} onTarget={handleTarget} onSchedule={(x) => setSchedFor(x)}
                   onEdit={(x) => setEditor({ editing: x })} onCopy={handleCopy} onDelete={handleDelete} />
               ))}

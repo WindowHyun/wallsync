@@ -31,8 +31,11 @@ export interface Source {
 
 export interface NotifSettings { enabled: boolean; team: string; lead: number }
 
-/** v2 백업에서 소스 외에 함께 복원되는 항목 */
-export interface BackupExtra { notif?: NotifSettings; activeId?: string | null }
+/** 화면(홈/잠금)별 마지막 수동 적용 소스 id */
+export interface ActiveMap { home: string | null; lock: string | null }
+
+/** v2+ 백업에서 소스 외에 함께 복원되는 항목 (activeId는 v2, active는 v3) */
+export interface BackupExtra { notif?: NotifSettings; activeId?: string | null; active?: ActiveMap }
 
 export interface ToastAction { label: string; fn: () => void }
 export interface ToastMsg { id: string; msg: string; type: "success" | "error" | "warn"; action?: ToastAction }

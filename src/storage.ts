@@ -1,9 +1,10 @@
-import { Source, NotifSettings } from "./types";
+import { Source, NotifSettings, ActiveMap } from "./types";
 import { sanitizeSources } from "./lib/sanitize";
 
 // ─── 로컬 저장 레이어 — 키와 접근을 한 곳에서 관리 ─────────────────────────────────────
 const STORE_KEY = "wallsync.sources.v1";
-const ACTIVE_KEY = "wallsync.active.v1";
+const ACTIVE_KEY_LEGACY = "wallsync.active.v1"; // 단일 activeId (구버전)
+const ACTIVE_KEY = "wallsync.active.v2";        // 화면(홈/잠금)별 activeId
 const NOTIF_KEY = "wallsync.notif.v1";
 
 export function loadSources(): Source[] {
@@ -23,12 +24,28 @@ export function saveSources(sources: Source[]) {
   localStorage.setItem(STORE_KEY, JSON.stringify(sources));
 }
 
-export function loadActiveId(): string | null {
-  return localStorage.getItem(ACTIVE_KEY);
+/** v2(화면별) 적용중 상태. 저장된 적 없으면 null — 호출부에서 legacy 마이그레이션 판단. */
+export function loadActiveMap(): ActiveMap | null {
+  try {
+    const raw = localStorage.getItem(ACTIVE_KEY);
+    if (!raw) return null;
+    const p = JSON.parse(raw);
+    return {
+      home: typeof p?.home === "string" ? p.home : null,
+      lock: typeof p?.lock === "string" ? p.lock : null,
+    };
+  } catch { return null; }
 }
-export function saveActiveId(id: string | null) {
-  if (id) localStorage.setItem(ACTIVE_KEY, id);
-  else localStorage.removeItem(ACTIVE_KEY);
+export function saveActiveMap(m: ActiveMap) {
+  localStorage.setItem(ACTIVE_KEY, JSON.stringify(m));
+}
+
+/** 구버전 단일 activeId — v2 마이그레이션 후 제거된다. */
+export function loadLegacyActiveId(): string | null {
+  return localStorage.getItem(ACTIVE_KEY_LEGACY);
+}
+export function clearLegacyActiveId() {
+  localStorage.removeItem(ACTIVE_KEY_LEGACY);
 }
 
 /** 저장된 적 없으면 null — 호출부에서 기본값(팀 추론 등)을 결정한다. */

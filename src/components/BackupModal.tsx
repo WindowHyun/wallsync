@@ -1,19 +1,19 @@
 import { useState } from "react";
-import { Source, NotifSettings, BackupExtra, ToastMsg } from "../types";
+import { Source, NotifSettings, BackupExtra, ActiveMap, ToastMsg } from "../types";
 import { C } from "../theme";
 import { serializeBackup, parseBackup } from "../lib/backup";
 import { Lbl } from "./common";
 
 // ─── 백업/복원 모달 ─────────────────────────────────────────────────────────────────
-export function BackupModal({ sources, notif, activeId, onImport, onClose, toast }: {
+export function BackupModal({ sources, notif, active, onImport, onClose, toast }: {
   sources: Source[];
   notif: NotifSettings;
-  activeId: string | null;
+  active: ActiveMap;
   onImport: (s: Source[], extra: BackupExtra) => void;
   onClose: () => void;
   toast: (m: string, t?: ToastMsg["type"]) => void;
 }) {
-  const exportText = serializeBackup(sources, notif, activeId);
+  const exportText = serializeBackup(sources, notif, active);
   const [text, setText] = useState("");
 
   const copy = async () => {

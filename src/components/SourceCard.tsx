@@ -6,10 +6,11 @@ import { appliedLabel, scheduleLabel, syncLabel } from "../lib/format";
 import { TargetPicker, ghostMini } from "./common";
 
 // ─── 카드 ──────────────────────────────────────────────────────────────────────
-export function SourceCard({ src, sync, active, onApply, onTarget, onSchedule, onEdit, onCopy, onDelete }: {
+export function SourceCard({ src, sync, activeOn, onApply, onTarget, onSchedule, onEdit, onCopy, onDelete }: {
   src: Source;
   sync?: SyncResult;
-  active: boolean;
+  /** 이 소스가 적용중인 화면 목록 (홈/잠금 별도 추적) */
+  activeOn: ("home" | "lock")[];
   onApply: (s: Source) => void;
   onTarget: (id: string, t: WallpaperTarget) => void;
   onSchedule: (s: Source) => void;
@@ -23,6 +24,8 @@ export function SourceCard({ src, sync, active, onApply, onTarget, onSchedule, o
   const [imgLoading, setImgLoading] = useState(true);
   const displaySrc = bust ? src.url + (src.url.includes("?") ? "&" : "?") + "_t=" + bust : src.url;
   const refresh = () => { setImgLoading(true); setBust(Date.now()); };
+  const active = activeOn.length > 0;
+  const activeBadge = activeOn.length === 2 ? "✓ 적용중" : activeOn[0] === "home" ? "✓ 홈" : "✓ 잠금";
   const border = active ? accent : src.auto ? C.teal : "transparent";
 
   return (
@@ -36,7 +39,7 @@ export function SourceCard({ src, sync, active, onApply, onTarget, onSchedule, o
         <div style={{ position: "absolute", top: 8, left: 8, background: "rgba(0,0,0,0.6)", borderRadius: 6, padding: "2px 8px", fontSize: 9, fontWeight: 700, color: src.type === "kbo" ? accent : C.sub }}>
           {src.type === "kbo" ? "KBO" : "URL"}
         </div>
-        {active && <div style={{ position: "absolute", top: 8, left: 48, background: accent, borderRadius: 6, padding: "2px 8px", fontSize: 9, fontWeight: 800, color: "#fff" }}>✓ 적용중</div>}
+        {active && <div style={{ position: "absolute", top: 8, left: 48, background: accent, borderRadius: 6, padding: "2px 8px", fontSize: 9, fontWeight: 800, color: "#fff" }}>{activeBadge}</div>}
         {src.auto && (
           <div style={{ position: "absolute", top: 8, right: 8, background: C.tealSoft, border: `1px solid ${C.teal}`, borderRadius: 6, padding: "2px 7px", fontSize: 9, fontWeight: 700, color: C.teal }}>
             ⚡ {scheduleLabel(src.schedule)}

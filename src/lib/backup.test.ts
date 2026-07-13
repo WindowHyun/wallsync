@@ -8,23 +8,36 @@ const src = (id: string, over: Partial<Source> = {}): Source => ({
 });
 const notif: NotifSettings = { enabled: true, team: "LG", lead: 60 };
 
-describe("serializeBackup / parseBackup (v2)", () => {
-  it("직렬화 후 파싱하면 소스·알림·activeId가 복원된다", () => {
-    const text = serializeBackup([src("a"), src("b")], notif, "a");
+describe("serializeBackup / parseBackup (v3)", () => {
+  it("직렬화 후 파싱하면 소스·알림·화면별 적용중이 복원된다", () => {
+    const text = serializeBackup([src("a"), src("b")], notif, { home: "a", lock: "b" });
     const r = parseBackup(text);
     expect(r.sources.map((s) => s.id)).toEqual(["a", "b"]);
     expect(r.extra.notif).toEqual(notif);
-    expect(r.extra.activeId).toBe("a");
+    expect(r.extra.active).toEqual({ home: "a", lock: "b" });
   });
 
-  it("activeId가 null이어도 extra에 null로 복원된다", () => {
-    const r = parseBackup(serializeBackup([src("a")], notif, null));
-    expect(r.extra.activeId).toBeNull();
+  it("빈 active 맵도 그대로 복원된다", () => {
+    const r = parseBackup(serializeBackup([src("a")], notif, { home: null, lock: null }));
+    expect(r.extra.active).toEqual({ home: null, lock: null });
   });
 
   it("잘못된 notif 형태는 extra에서 제외된다", () => {
-    const text = JSON.stringify({ version: 2, sources: [src("a")], notif: { enabled: "yes" } });
+    const text = JSON.stringify({ version: 3, sources: [src("a")], notif: { enabled: "yes" } });
     expect(parseBackup(text).extra.notif).toBeUndefined();
+  });
+});
+
+describe("parseBackup (v2 activeId 호환)", () => {
+  it("v2 백업의 activeId는 extra.activeId로 복원된다", () => {
+    const text = JSON.stringify({ version: 2, sources: [src("a")], notif, activeId: "a" });
+    const r = parseBackup(text);
+    expect(r.extra.activeId).toBe("a");
+    expect(r.extra.active).toBeUndefined();
+  });
+  it("activeId가 null이어도 extra에 null로 복원된다", () => {
+    const text = JSON.stringify({ version: 2, sources: [src("a")], activeId: null });
+    expect(parseBackup(text).extra.activeId).toBeNull();
   });
 });
 
