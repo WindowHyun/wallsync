@@ -2,9 +2,17 @@ import { WallpaperTarget } from "./wallpaper";
 
 // ─── 도메인 타입 (웹 전역 공유) ────────────────────────────────────────────────────
 
+/** 자동 갱신 실행 조건 (WorkManager Constraints로 전달) */
+export interface ScheduleOpts {
+  /** Wi-Fi(비과금 네트워크)에서만 갱신 */
+  wifiOnly?: boolean;
+  /** 충전 중에만 갱신 */
+  charging?: boolean;
+}
+
 export type Schedule =
-  | { kind: "interval"; hours: number }
-  | { kind: "daily"; hour: number; minute: number };
+  | ({ kind: "interval"; hours: number } & ScheduleOpts)
+  | ({ kind: "daily"; hour: number; minute: number } & ScheduleOpts);
 
 export interface KboConfig { team: string; style: string; mode: string; res: string }
 

@@ -26,6 +26,10 @@ export interface WallpaperPlugin {
     dailyHour?: number;
     /** daily 모드 전용 — 매일 적용 분 (0~59) */
     dailyMinute?: number;
+    /** Wi-Fi(비과금 네트워크)에서만 갱신 (기본 false) */
+    wifiOnly?: boolean;
+    /** 충전 중에만 갱신 (기본 false) */
+    charging?: boolean;
   }): Promise<void>;
   /** 예약 취소 */
   cancel(options: { id: string }): Promise<void>;

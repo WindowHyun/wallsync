@@ -5,6 +5,8 @@ describe("scheduleLabel", () => {
   it("null → 빈 문자열", () => expect(scheduleLabel(null)).toBe(""));
   it("interval", () => expect(scheduleLabel({ kind: "interval", hours: 6 })).toBe("6시간마다"));
   it("daily는 0 패딩", () => expect(scheduleLabel({ kind: "daily", hour: 8, minute: 5 })).toBe("매일 08:05"));
+  it("실행 조건 마커", () =>
+    expect(scheduleLabel({ kind: "interval", hours: 6, wifiOnly: true, charging: true })).toBe("6시간마다 ·📶 ·🔌"));
 });
 
 describe("leadLabel", () => {

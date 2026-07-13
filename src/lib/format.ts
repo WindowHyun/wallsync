@@ -16,8 +16,11 @@ export const targetLabel = (t: WallpaperTarget) => (t === "home" ? "홈" : t ===
 
 export function scheduleLabel(s: Schedule | null) {
   if (!s) return "";
-  if (s.kind === "interval") return `${s.hours}시간마다`;
-  return `매일 ${String(s.hour).padStart(2, "0")}:${String(s.minute).padStart(2, "0")}`;
+  const base = s.kind === "interval"
+    ? `${s.hours}시간마다`
+    : `매일 ${String(s.hour).padStart(2, "0")}:${String(s.minute).padStart(2, "0")}`;
+  // 실행 조건 마커 (카드 배지 공간이 좁아 아이콘으로 축약)
+  return base + (s.wifiOnly ? " ·📶" : "") + (s.charging ? " ·🔌" : "");
 }
 
 export const leadLabel = (m: number) =>

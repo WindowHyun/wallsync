@@ -9,10 +9,17 @@ export function ScheduleModal({ src, onSave, onTest, onClose }: { src: Source; o
   const [hours, setHours] = useState(src.schedule?.kind === "interval" ? src.schedule.hours : 6);
   const [hour, setHour] = useState(src.schedule?.kind === "daily" ? src.schedule.hour : 8);
   const [minute, setMinute] = useState(src.schedule?.kind === "daily" ? src.schedule.minute : 0);
+  const [wifiOnly, setWifiOnly] = useState(src.schedule?.wifiOnly ?? false);
+  const [charging, setCharging] = useState(src.schedule?.charging ?? false);
+
+  // 백업 복원 등으로 목록 밖 분값이 들어와도 select가 빈 값으로 보이지 않게 현재 값 포함
+  const minuteOpts = Array.from(new Set([...[0, 10, 15, 20, 30, 45], minute])).sort((a, b) => a - b);
 
   const save = () => {
     if (!enabled) { onSave(false, null); onClose(); return; }
-    const s: Schedule = kind === "interval" ? { kind, hours } : { kind: "daily", hour, minute };
+    const s: Schedule = kind === "interval"
+      ? { kind, hours, wifiOnly, charging }
+      : { kind: "daily", hour, minute, wifiOnly, charging };
     onSave(true, s);
     onClose();
   };
@@ -64,12 +71,26 @@ export function ScheduleModal({ src, onSave, onTest, onClose }: { src: Source; o
                 {Array.from({ length: 24 }, (_, i) => i).map((h) => <option key={h} value={h}>{String(h).padStart(2, "0")}시</option>)}
               </select>
               <select value={minute} onChange={(e) => setMinute(+e.target.value)} style={{ flex: 1, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 10px", color: C.text, fontSize: 14 }}>
-                {[0, 10, 15, 20, 30, 45].map((m) => <option key={m} value={m}>{String(m).padStart(2, "0")}분</option>)}
+                {minuteOpts.map((m) => <option key={m} value={m}>{String(m).padStart(2, "0")}분</option>)}
               </select>
             </div>
           )}
+
+          <div style={{ marginTop: 14, fontSize: 11, color: C.sub, fontWeight: 600, marginBottom: 6 }}>실행 조건</div>
+          <div style={{ display: "flex", gap: 8 }}>
+            {([["📶 Wi-Fi에서만", wifiOnly, setWifiOnly], ["🔌 충전 중에만", charging, setCharging]] as const).map(([label, on, set]) => (
+              <button key={label} onClick={() => set(!on)} style={{
+                flex: 1, padding: "8px 0", borderRadius: 9,
+                border: `1.5px solid ${on ? C.teal : C.border}`,
+                background: on ? C.tealSoft : "transparent",
+                color: on ? C.teal : C.sub, fontSize: 12, fontWeight: 600, cursor: "pointer",
+              }}>{label}</button>
+            ))}
+          </div>
+
           <div style={{ marginTop: 12, fontSize: 11, color: C.muted, lineHeight: 1.5 }}>
             ※ 안드로이드 정책상 최소 간격은 15분이며, 배터리 절약 상태에 따라 실제 실행은 다소 지연될 수 있습니다.
+            실행 조건을 켜면 조건이 충족될 때까지 갱신이 미뤄집니다.
           </div>
         </div>
 

@@ -13,15 +13,16 @@ const TARGETS: readonly WallpaperTarget[] = ["home", "lock", "both"];
 
 function sanitizeSchedule(raw: any): Schedule | null {
   if (!raw || typeof raw !== "object") return null;
+  const opts = { wifiOnly: raw.wifiOnly === true, charging: raw.charging === true };
   if (raw.kind === "interval" && Number.isFinite(raw.hours) && raw.hours >= 1) {
-    return { kind: "interval", hours: raw.hours };
+    return { kind: "interval", hours: raw.hours, ...opts };
   }
   if (
     raw.kind === "daily" &&
     Number.isInteger(raw.hour) && raw.hour >= 0 && raw.hour <= 23 &&
     Number.isInteger(raw.minute) && raw.minute >= 0 && raw.minute <= 59
   ) {
-    return { kind: "daily", hour: raw.hour, minute: raw.minute };
+    return { kind: "daily", hour: raw.hour, minute: raw.minute, ...opts };
   }
   return null;
 }

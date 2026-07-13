@@ -86,8 +86,12 @@ public class WallpaperPlugin extends Plugin {
         // 깨끗이 교체되지 않을 수 있으므로, 재등록 전 항상 기존 작업을 취소한다.
         wm.cancelUniqueWork(workName);
 
+        // 실행 조건: Wi-Fi(비과금)에서만 / 충전 중에만 — 조건 미충족 시 충족될 때까지 대기
+        boolean wifiOnly = Boolean.TRUE.equals(call.getBoolean("wifiOnly", false));
+        boolean charging = Boolean.TRUE.equals(call.getBoolean("charging", false));
         Constraints constraints = new Constraints.Builder()
-                .setRequiredNetworkType(NetworkType.CONNECTED)
+                .setRequiredNetworkType(wifiOnly ? NetworkType.UNMETERED : NetworkType.CONNECTED)
+                .setRequiresCharging(charging)
                 .build();
 
         if ("daily".equals(mode)) {
@@ -106,6 +110,8 @@ public class WallpaperPlugin extends Plugin {
                     .putString("workName", workName)
                     .putInt("dailyHour", hour)
                     .putInt("dailyMinute", minute)
+                    .putBoolean("wifiOnly", wifiOnly)
+                    .putBoolean("charging", charging)
                     .build();
 
             OneTimeWorkRequest request = new OneTimeWorkRequest.Builder(WallpaperWorker.class)

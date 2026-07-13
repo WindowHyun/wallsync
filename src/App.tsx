@@ -19,10 +19,11 @@ const native = Capacitor.isNativePlatform();
 // 네이티브 예약 등록 (interval/daily). daily는 네이티브가 매 실행마다 다음 정시를
 // 스스로 재예약하므로 시각이 드리프트되지 않는다.
 function scheduleNative(id: string, url: string, target: WallpaperTarget, s: Schedule) {
+  const cond = { wifiOnly: s.wifiOnly === true, charging: s.charging === true };
   if (s.kind === "interval") {
-    return Wallpaper.schedule({ id, url, target, mode: "interval", intervalMinutes: s.hours * 60 });
+    return Wallpaper.schedule({ id, url, target, mode: "interval", intervalMinutes: s.hours * 60, ...cond });
   }
-  return Wallpaper.schedule({ id, url, target, mode: "daily", dailyHour: s.hour, dailyMinute: s.minute });
+  return Wallpaper.schedule({ id, url, target, mode: "daily", dailyHour: s.hour, dailyMinute: s.minute, ...cond });
 }
 
 // 두 소스의 적용 대상이 같은 화면을 덮는지 (both는 모든 대상과 겹침)

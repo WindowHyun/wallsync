@@ -102,8 +102,12 @@ public class WallpaperWorker extends Worker {
 
         long delaySec = secondsUntilNextDaily(hour, minute);
 
+        // 실행 조건(Wi-Fi/충전)을 다음 날 예약에도 그대로 이어간다
+        boolean wifiOnly = getInputData().getBoolean("wifiOnly", false);
+        boolean charging = getInputData().getBoolean("charging", false);
         Constraints constraints = new Constraints.Builder()
-                .setRequiredNetworkType(NetworkType.CONNECTED)
+                .setRequiredNetworkType(wifiOnly ? NetworkType.UNMETERED : NetworkType.CONNECTED)
+                .setRequiresCharging(charging)
                 .build();
 
         Data data = new Data.Builder()
@@ -114,6 +118,8 @@ public class WallpaperWorker extends Worker {
                 .putString("workName", workName)
                 .putInt("dailyHour", hour)
                 .putInt("dailyMinute", minute)
+                .putBoolean("wifiOnly", wifiOnly)
+                .putBoolean("charging", charging)
                 .build();
 
         OneTimeWorkRequest next = new OneTimeWorkRequest.Builder(WallpaperWorker.class)

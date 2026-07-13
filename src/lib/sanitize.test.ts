@@ -41,14 +41,20 @@ describe("sanitizeSource — 필드 보정", () => {
     expect(sanitizeSource({ ...base, schedule: { kind: "daily", hour: 25, minute: 0 } })?.schedule).toBeNull();
     expect(sanitizeSource({ ...base, schedule: { kind: "daily", hour: 8, minute: 60 } })?.schedule).toBeNull();
     expect(sanitizeSource({ ...base, schedule: { kind: "daily", hour: 8, minute: 30 } })?.schedule)
-      .toEqual({ kind: "daily", hour: 8, minute: 30 });
+      .toEqual({ kind: "daily", hour: 8, minute: 30, wifiOnly: false, charging: false });
   });
 
   it("interval hours가 숫자가 아니거나 1 미만이면 버려진다", () => {
     expect(sanitizeSource({ ...base, schedule: { kind: "interval", hours: "6" } })?.schedule).toBeNull();
     expect(sanitizeSource({ ...base, schedule: { kind: "interval", hours: 0 } })?.schedule).toBeNull();
     expect(sanitizeSource({ ...base, schedule: { kind: "interval", hours: 6 } })?.schedule)
-      .toEqual({ kind: "interval", hours: 6 });
+      .toEqual({ kind: "interval", hours: 6, wifiOnly: false, charging: false });
+  });
+
+  it("실행 조건(wifiOnly/charging)은 boolean true일 때만 보존된다", () => {
+    const s = sanitizeSource({ ...base, schedule: { kind: "interval", hours: 6, wifiOnly: true, charging: "yes" } })?.schedule;
+    expect(s?.wifiOnly).toBe(true);
+    expect(s?.charging).toBe(false);
   });
 
   it("schedule이 유효하면 auto=true가 유지된다", () => {
