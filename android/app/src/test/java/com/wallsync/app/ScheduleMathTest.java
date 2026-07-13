@@ -70,4 +70,27 @@ public class ScheduleMathTest {
         // 총 픽셀(20M)이 상한(1440*3120*4≈17.97M) 초과 → 픽셀 안전장치로 2배 축소
         assertEquals(2, ScheduleMath.calcInSampleSize(10000, 2000, 1440, 3120));
     }
+
+    // ── notifId — JS 명세(lib/schedule-plan.ts)와의 교차 검증 ─────────────────
+    // 기대값은 JS notifId()로 산출한 고정 벡터. schedule-plan.test.ts에 동일 벡터가
+    // 있어 양쪽 구현이 같은 계약을 지키는지 회귀 검증한다.
+
+    @Test
+    public void notifId_matchesJsSpecVectors() {
+        assertEquals(164726, GameNotifyConst.notifId("2026-07-1018:30"));
+        assertEquals(210481, GameNotifyConst.notifId("2026-07-1518:30"));
+        assertEquals(971480, GameNotifyConst.notifId("2025-03-0114:00"));
+        assertEquals(100097, GameNotifyConst.notifId("a"));
+        assertEquals(100000, GameNotifyConst.notifId(""));
+    }
+
+    @Test
+    public void notifId_alwaysInRange() {
+        // 해시가 2^31을 넘는 입력(부호 반전 유발)에서도 100000~999999 범위 유지
+        String[] samples = { "2026-07-1018:30", "2026-12-3122:00", "긴 문자열로 오버플로를 유도한다 aaaabbbbcccc", "zzzzzzzzzz" };
+        for (String s : samples) {
+            int id = GameNotifyConst.notifId(s);
+            org.junit.Assert.assertTrue("range: " + id, id >= 100000 && id < 1000000);
+        }
+    }
 }

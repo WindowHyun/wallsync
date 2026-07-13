@@ -20,10 +20,15 @@ final class GameNotifyConst {
     static final String UNIQUE_PERIODIC = "wallsync_gamenotify";
     static final String UNIQUE_NOW = "wallsync_gamenotify_now";
 
-    /** 문자열 → 결정적 알림 id (100000~999999). */
+    /**
+     * 문자열 → 결정적 알림 id (100000~999999).
+     * JS 명세(lib/schedule-plan.ts notifId)와 반드시 같은 값이어야 한다 —
+     * JS의 `>>> 0`(unsigned 32bit)과 일치하도록 부호 없는 해석 후 나머지 연산.
+     * (Math.abs(signed)는 해시가 2^31 이상인 입력에서 다른 값을 만든다)
+     */
     static int notifId(String s) {
         int h = 0;
         for (int i = 0; i < s.length(); i++) h = h * 31 + s.charAt(i);
-        return 100000 + (Math.abs(h) % 900000);
+        return 100000 + (int) ((h & 0xffffffffL) % 900000L);
     }
 }

@@ -70,4 +70,13 @@ describe("notifId", () => {
   it("다른 입력이면 다른 id (일반적으로)", () => {
     expect(notifId("a")).not.toBe(notifId("b"));
   });
+  it("고정 벡터 — 네이티브(GameNotifyConst.notifId)와 동일해야 하는 계약값", () => {
+    // ScheduleMathTest.notifId_matchesJsSpecVectors 와 같은 벡터.
+    // 값이 바뀌면 Java 쪽도 함께 바꿔야 한다 (기존 예약 알람 id와의 호환도 고려).
+    expect(notifId("2026-07-1018:30")).toBe(164726);
+    expect(notifId("2026-07-1518:30")).toBe(210481);
+    expect(notifId("2025-03-0114:00")).toBe(971480);
+    expect(notifId("a")).toBe(100097);
+    expect(notifId("")).toBe(100000);
+  });
 });

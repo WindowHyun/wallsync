@@ -69,6 +69,8 @@ public class GameNotifyWorker extends Worker {
             AlarmManager am = (AlarmManager) ctx.getSystemService(Context.ALARM_SERVICE);
             SimpleDateFormat fmt = new SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.KOREA);
             fmt.setTimeZone(TimeZone.getTimeZone("Asia/Seoul"));
+            // JS 명세는 비정상 날짜를 Invalid Date로 걸러낸다 — lenient 롤오버 파싱 차단으로 계약 일치
+            fmt.setLenient(false);
 
             long now = System.currentTimeMillis();
             List<Integer> ids = new ArrayList<>();
