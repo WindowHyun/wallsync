@@ -131,8 +131,9 @@ export default function App() {
 
   const saveNotif = async (next: NotifSettings) => {
     if (!native) {
-      persistNotif(next);
-      toast("알림은 설치된 앱에서만 동작합니다", "warn");
+      // 웹에선 실제 예약이 불가하므로 '켜짐'으로 저장하지 않는다 (표시=실제 일치)
+      persistNotif({ ...next, enabled: false });
+      toast("알림은 설치된 앱에서만 켤 수 있습니다 — 팀·시점만 저장됨", "warn");
       return;
     }
     try {
@@ -170,7 +171,8 @@ export default function App() {
     // 자동 갱신이 켜진 소스라면 백그라운드 작업도 새 대상으로 재등록 (표시값=실제동작 일치)
     const s = sources.find((x) => x.id === id);
     if (native && s && s.auto && s.schedule) {
-      try { await scheduleNative(id, s.url, target, s.schedule); } catch { /* ignore */ }
+      try { await scheduleNative(id, s.url, target, s.schedule); }
+      catch { toast("자동 갱신 재등록 실패 — ⏰ 설정을 다시 저장해주세요", "warn"); }
     }
   };
 
@@ -183,7 +185,8 @@ export default function App() {
       setSources((p) => p.map((x) => (x.id === s.id ? next : x)));
       if (urlChanged) setActive((p) => clearActiveId(p, s.id));
       if (native && next.auto && next.schedule) {
-        try { await scheduleNative(next.id, next.url, next.target, next.schedule); } catch { /* ignore */ }
+        try { await scheduleNative(next.id, next.url, next.target, next.schedule); }
+        catch { toast("자동 갱신 재등록 실패 — ⏰ 설정을 다시 저장해주세요", "warn"); }
       }
       toast(`✓ "${s.name}" 수정됨`);
     } else {
@@ -221,12 +224,14 @@ export default function App() {
   // 복원: 기존 예약을 모두 취소하고 가져온 목록으로 교체, 자동 소스는 재예약
   const handleImport = async (imported: Source[], extra: BackupExtra) => {
     if (native) {
-      try {
-        for (const old of sources) { try { await Wallpaper.cancel({ id: old.id }); } catch { /* ignore */ } }
-        for (const s of imported) {
-          if (s.auto && s.schedule) { try { await scheduleNative(s.id, s.url, s.target, s.schedule); } catch { /* ignore */ } }
+      let failed = 0;
+      for (const old of sources) { try { await Wallpaper.cancel({ id: old.id }); } catch { /* ignore */ } }
+      for (const s of imported) {
+        if (s.auto && s.schedule) {
+          try { await scheduleNative(s.id, s.url, s.target, s.schedule); } catch { failed++; }
         }
-      } catch { /* ignore */ }
+      }
+      if (failed > 0) toast(`${failed}개 소스의 자동 갱신 재등록 실패 — ⏰ 설정을 다시 저장해주세요`, "warn");
     }
     setSources(imported);
     // v3(화면별 active)·v2(단일 activeId) 백업이면 적용중 상태도 복원

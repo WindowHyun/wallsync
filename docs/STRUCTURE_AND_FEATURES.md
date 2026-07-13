@@ -12,21 +12,31 @@
 
 | # | 심각도 | 항목 | 상태 |
 |---|--------|------|------|
-| D-1 | 🟠 Medium | 재부팅 시 경기 알람 전부 유실 — BOOT_COMPLETED 리시버 없음 (권한만 선언) | 미해결 |
-| D-2 | 🟠 Medium | `notifId` 해시가 JS 명세와 Java 구현에서 서로 다른 값 산출 (계약 깨짐) | 미해결 |
-| D-3 | 🟠 Medium | "🔄 갱신" 전체 적용 시 실패한 소스에도 `lastApplied`·적용중 배지 갱신 | 미해결 |
-| D-4 | 🟠 Medium | 미사용 `@capacitor/local-notifications`가 여전히 APK에 포함됨 | 미해결 |
-| D-5 | 🟠 Medium | 백업 복원 검증 부족 — `target`/`auto`/`schedule` 미검증으로 이상 예약 가능 | 미해결 |
-| D-6 | 🟡 Low | `loadSources` 스키마 검증 없음 — 손상 데이터가 그대로 상태에 유입 | 미해결 |
-| D-7 | 🟡 Low | 경기 알림·실패 알림에 contentIntent 없음 — 탭해도 앱이 안 열림 | 미해결 |
-| D-8 | 🟡 Low | ScheduleModal 분 옵션 고정 — 목록 밖 분값이면 select가 빈 값 표시 | 미해결 |
-| D-9 | 🟡 Low | 웹 미리보기에서 알림 `enabled=true`가 영구 저장됨 | 미해결 |
-| D-10 | 🟡 Low | 경기 알림 워커 실패가 무통지·무기록 — 파이프라인 상태를 UI에서 알 수 없음 | 미해결 |
-| D-11 | 🟡 Low | `SimpleDateFormat` lenient 기본값 — JS 명세와 파싱 관대함 불일치 | 미해결 |
-| D-12 | 🟡 Low | 핸들러의 네이티브 재예약 실패를 조용히 무시 (`handleTarget` 등) | 미해결 |
-| D-13 | ⚪ 구조 | 홈/잠금 단일 `activeId` 모델 — 화면별 적용 상태 표현 불가 | 설계 과제 |
+| D-1 | 🟠 Medium | 재부팅 시 경기 알람 전부 유실 — BOOT_COMPLETED 리시버 없음 (권한만 선언) | ✅ 1차 수정 (F-2) |
+| D-2 | 🟠 Medium | `notifId` 해시가 JS 명세와 Java 구현에서 서로 다른 값 산출 (계약 깨짐) | ✅ 1차 수정 |
+| D-3 | 🟠 Medium | "🔄 갱신" 전체 적용 시 실패한 소스에도 `lastApplied`·적용중 배지 갱신 | ✅ 1차 수정 |
+| D-4 | 🟠 Medium | 미사용 `@capacitor/local-notifications`가 여전히 APK에 포함됨 | ✅ 1차 수정 |
+| D-5 | 🟠 Medium | 백업 복원 검증 부족 — `target`/`auto`/`schedule` 미검증으로 이상 예약 가능 | ✅ 1차 수정 |
+| D-6 | 🟡 Low | `loadSources` 스키마 검증 없음 — 손상 데이터가 그대로 상태에 유입 | ✅ 1차 수정 |
+| D-7 | 🟡 Low | 경기 알림·실패 알림에 contentIntent 없음 — 탭해도 앱이 안 열림 | ✅ 1차 수정 (F-1) |
+| D-8 | 🟡 Low | ScheduleModal 분 옵션 고정 — 목록 밖 분값이면 select가 빈 값 표시 | ✅ 1차 수정 |
+| D-9 | 🟡 Low | 웹 미리보기에서 알림 `enabled=true`가 영구 저장됨 | ✅ 1차 수정 |
+| D-10 | 🟡 Low | 경기 알림 워커 실패가 무통지·무기록 — 파이프라인 상태를 UI에서 알 수 없음 | ⏸ 보류 (F-8) |
+| D-11 | 🟡 Low | `SimpleDateFormat` lenient 기본값 — JS 명세와 파싱 관대함 불일치 | ✅ 1차 수정 |
+| D-12 | 🟡 Low | 핸들러의 네이티브 재예약 실패를 조용히 무시 (`handleTarget` 등) | ✅ 1차 수정 |
+| D-13 | ⚪ 구조 | 홈/잠금 단일 `activeId` 모델 — 화면별 적용 상태 표현 불가 | ✅ 1차 수정 (F-5) |
 
 기능(F 시리즈)은 [아래](#-f-시리즈--추가수정-기능) 참조. 우선 추천: **F-1(알림 탭→앱 열기), F-2(부팅 복구), F-4(Wi-Fi/충전 제약)**.
+
+### ✅ 1차 수정 내역 (우선순위 1→4 순차 처리)
+- **우선순위 1** — F-1(경기·실패 알림 contentIntent → 탭하면 앱 열림), F-2(BootReceiver 신설 + 설정 네이티브 저장 → 재부팅 직후 알람 즉시 복구), D-3(전체 갱신은 성공한 소스만 lastApplied·적용중 반영)
+- **우선순위 2** — D-2(Java notifId를 `(h & 0xffffffffL) % 900000`으로 JS `>>>0` 명세와 정렬, 고정 벡터 교차 테스트를 JS/Java 양쪽에 추가·독립 JVM 실행으로 일치 확인), D-11(`setLenient(false)`)
+- **우선순위 3** — D-4(LocalNotifications 의존성 제거 + cap sync 재생성 + README 현행화), D-5/D-6(`lib/sanitize.ts` 신설 — parseBackup·loadSources 공유 정규화, 손상 저장소 원문 보존)
+- **우선순위 4** — F-4(Wi-Fi 전용·충전 중 실행 조건: Schedule 타입/모달 토글/네이티브 Constraints/daily 재예약 전파/카드 마커, D-8 분 옵션 보정 포함)
+- **F-5/D-13** — 화면별 적용중(`ActiveMap`): 저장소 v2 키+자동 마이그레이션, 백업 v3(v1/v2 계속 수용), 히어로 화면별 행, 카드 배지 ✓홈/✓잠금/✓적용중, 대상 변경 시 미커버 화면 해제
+- **잔여 Low** — D-9(웹에선 enabled 저장 안 함), D-12(대상 변경·편집·복원의 재예약 실패를 warn 토스트로 노출)
+- **검증**: typecheck 클린 · vitest **57/57** · vite build 성공 · notifId Java 구현 독립 JVM 교차 실행 PASS. 네이티브 컴파일·실기기 동작(BootReceiver 발화, UNMETERED/충전 제약)은 CI·실기기에서 확인 필요.
+- **보류(다음 후보)**: F-6 로테이션(대규모 — 별도 라운드 권장), F-7 백업 파일 가져오기, F-8 알림 파이프라인 상태 표시(D-10), F-9 응원팀 연동 제안, F-10 Play 배포 트랙
 
 ---
 
