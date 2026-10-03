@@ -73,7 +73,10 @@ export function SourceCard({ src, sync, active, onApply, onTarget, onSchedule, o
             <div style={{ display: "flex", alignItems: "center", gap: 6, color: C.error, fontSize: 14, fontWeight: 700, lineHeight: 1.3 }}>
               <Icon name="alert" size={16} stroke={2} style={{ flexShrink: 0 }} />이미지를 불러오지 못했어요
             </div>
-            <div style={{ fontSize: 13, color: C.muted, lineHeight: 1.4 }}>주소를 확인하거나 다시 시도해 주세요.</div>
+            <div style={{ fontSize: 13, color: C.muted, lineHeight: 1.4 }}>미리보기만 실패했을 수 있어요. 아래 ‘지금 적용’은 그대로 쓸 수 있어요.</div>
+            <button type="button" onClick={refresh} style={{ ...outlineBtn(), alignSelf: "flex-start", marginTop: 4 }}>
+              <Icon name="refresh" size={18} />미리보기 다시 시도
+            </button>
           </div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
@@ -91,13 +94,8 @@ export function SourceCard({ src, sync, active, onApply, onTarget, onSchedule, o
         <TargetPicker value={src.target} onChange={(t) => onTarget(src.id, t)} />
 
         <div style={{ display: "flex", gap: 6 }}>
-          {failed ? (
-            <button type="button" onClick={refresh} style={{ ...outlineBtn(), flex: 1, padding: 0 }}>
-              <Icon name="refresh" size={18} />다시 시도
-            </button>
-          ) : (
-            <button type="button" onClick={() => onApply(src)} style={{ ...primaryBtn(44), flex: 1, padding: 0 }}>지금 적용</button>
-          )}
+          {/* 미리보기(WebView)와 실제 적용(네이티브 다운로드)은 별개 경로 — 미리보기가 실패해도 적용은 항상 가능하게 둔다 */}
+          <button type="button" onClick={() => onApply(src)} style={{ ...primaryBtn(44), flex: 1, padding: 0 }}>지금 적용</button>
           <button type="button" onClick={() => onSchedule(src)} aria-label={src.auto ? "자동 갱신 설정 (켜짐)" : "자동 갱신 설정"} style={iconBtn(src.auto)}>
             <Icon name="clock" />
           </button>
