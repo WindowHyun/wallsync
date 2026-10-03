@@ -9,11 +9,11 @@ export type UrlCheck = { ok: true; url: string } | { ok: false; error: string };
  */
 export function validateImageUrl(raw: string): UrlCheck {
   const v = raw.trim();
-  if (!v) return { ok: false, error: "이미지 URL을 입력하세요" };
+  if (!v) return { ok: false, error: "이미지 URL을 입력해 주세요" };
   let u: URL;
-  try { u = new URL(v); } catch { return { ok: false, error: "올바른 URL 형식이 아닙니다 (예: https://example.com/image.png)" }; }
-  if (u.protocol === "http:") return { ok: false, error: "https:// 주소만 사용할 수 있습니다 (http는 Android에서 차단됩니다)" };
-  if (u.protocol !== "https:") return { ok: false, error: "https:// 로 시작하는 주소만 사용할 수 있습니다" };
-  if (!u.hostname) return { ok: false, error: "올바른 URL 형식이 아닙니다 (호스트가 없습니다)" };
+  try { u = new URL(v); } catch { return { ok: false, error: "올바른 URL 형식이 아니에요 (예: https://example.com/image.png)" }; }
+  if (u.protocol === "http:") return { ok: false, error: "https:// 주소만 사용할 수 있어요. http는 Android에서 차단돼 적용에 실패해요." };
+  if (u.protocol !== "https:") return { ok: false, error: "https:// 로 시작하는 주소만 사용할 수 있어요" };
+  if (!u.hostname) return { ok: false, error: "올바른 URL 형식이 아니에요 (호스트가 없어요)" };
   return { ok: true, url: v };
 }

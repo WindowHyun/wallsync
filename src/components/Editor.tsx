@@ -1,24 +1,27 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { Source, KboConfig } from "../types";
 import { WallpaperTarget } from "../wallpaper";
 import { C } from "../theme";
 import { TEAMS, STYLES, MODES, RES, buildKboUrl } from "../lib/kbo";
 import { uid } from "../lib/uid";
 import { validateImageUrl } from "../lib/url";
-import { Lbl, TargetPicker } from "./common";
+import { Icon, Lbl, Select, Sheet, Tabs, TargetPicker, TextField, Thumb, primaryBtn } from "./common";
 
-// ─── 추가/편집 모달 ────────────────────────────────────────────────────────────────
+// ─── 추가/편집 시트 ────────────────────────────────────────────────────────────────
 export function Editor({ editing, onSubmit, onClose }: { editing: Source | null; onSubmit: (s: Source) => void; onClose: () => void }) {
   const [tab, setTab] = useState<"kbo" | "url">(editing?.type ?? "kbo");
   const [name, setName] = useState(editing?.name ?? "");
   const [url, setUrl] = useState(editing && editing.type === "url" ? editing.url : "");
   const [target, setTarget] = useState<WallpaperTarget>(editing?.target ?? "both");
   const [kbo, setKbo] = useState<KboConfig>(editing?.kbo ?? { team: "KIA", style: "minimal", mode: "dark", res: "android-fhd" });
+  const targetLabelId = useId();
 
   // 직접 URL은 검증을 통과한 값만 사용한다 (잘못된 값이 카드·자동 갱신으로 새어 들어가지 않게)
   const urlCheck = validateImageUrl(url);
   const urlError = tab === "url" && url.trim() && !urlCheck.ok ? urlCheck.error : null;
   const resolvedUrl = tab === "kbo" ? buildKboUrl(kbo) : urlCheck.ok ? urlCheck.url : "";
+  // KBO 미리보기는 축소본(scale)으로 받아 전송량을 줄인다 (렌더 결과는 동일)
+  const previewUrl = tab === "kbo" ? `${resolvedUrl}&scale=0.4` : resolvedUrl;
   const teamLabelTxt = TEAMS.find((t) => t[0] === kbo.team)?.[1] ?? kbo.team;
   const defaultName = tab === "kbo" ? teamLabelTxt : "내 배경화면";
 
@@ -35,84 +38,60 @@ export function Editor({ editing, onSubmit, onClose }: { editing: Source | null;
     onClose();
   };
 
-  const sel = (value: string, onChange: (v: string) => void, opts: string[][]) => (
-    <select value={value} onChange={(e) => onChange(e.target.value)} style={{
-      background: C.surface, border: `1px solid ${C.border}`, borderRadius: 9,
-      padding: "9px 10px", color: C.text, fontSize: 13, width: "100%",
-    }}>
-      {opts.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-    </select>
-  );
-
   return (
-    <div onClick={(e) => { if (e.target === e.currentTarget) onClose(); }} style={{
-      position: "fixed", inset: 0, background: "rgba(0,0,0,0.8)", zIndex: 200,
-      display: "flex", alignItems: "center", justifyContent: "center", padding: 16,
-    }}>
-      <div style={{ background: C.card, borderRadius: 22, padding: 24, width: "100%", maxWidth: 460, border: `1px solid ${C.border}`, maxHeight: "92vh", overflowY: "auto" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
-          <h3 style={{ margin: 0, fontSize: 18, fontWeight: 800 }}>{editing ? "배경화면 편집" : "배경화면 추가"}</h3>
-          <button onClick={onClose} aria-label="닫기" style={{ background: "none", border: "none", color: C.sub, cursor: "pointer", fontSize: 20 }}>✕</button>
-        </div>
+    <Sheet title={editing ? "배경화면 편집" : "배경화면 추가"} onClose={onClose}>
+      <Tabs label="추가 방식" value={tab} onChange={setTab} options={[["kbo", "KBO 빌더"], ["url", "직접 URL"]]} />
 
-        <div style={{ display: "flex", gap: 6, marginBottom: 18, background: C.surface, borderRadius: 12, padding: 4 }}>
-          {[["kbo", "⚾ KBO 빌더"], ["url", "🔗 직접 URL"]].map(([k, l]) => (
-            <button key={k} onClick={() => setTab(k as "kbo" | "url")} style={{
-              flex: 1, padding: "9px 4px", borderRadius: 9,
-              background: tab === k ? C.card : "transparent",
-              border: tab === k ? `1px solid ${C.border}` : "1px solid transparent",
-              color: tab === k ? C.text : C.sub, fontSize: 13, fontWeight: 600, cursor: "pointer",
-            }}>{l}</button>
-          ))}
-        </div>
-
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          {tab === "kbo" ? (
-            <>
-              <div style={{ display: "flex", gap: 10 }}>
-                <div style={{ flex: 1 }}><Lbl>구단</Lbl>{sel(kbo.team, (v) => setKbo({ ...kbo, team: v }), TEAMS)}</div>
-                <div style={{ flex: 1 }}><Lbl>스타일</Lbl>{sel(kbo.style, (v) => setKbo({ ...kbo, style: v }), STYLES)}</div>
-              </div>
-              <div style={{ display: "flex", gap: 10 }}>
-                <div style={{ flex: 1 }}><Lbl>모드</Lbl>{sel(kbo.mode, (v) => setKbo({ ...kbo, mode: v }), MODES)}</div>
-                <div style={{ flex: 1.4 }}><Lbl>해상도</Lbl>{sel(kbo.res, (v) => setKbo({ ...kbo, res: v }), RES)}</div>
-              </div>
-              <div style={{ fontSize: 11, color: C.muted, background: C.surface, borderRadius: 8, padding: "8px 10px", lineHeight: 1.5 }}>
-                💡 연·월이 없는 URL이라 <b style={{ color: C.teal }}>매일 최신 결과·매달 새 달력</b>으로 자동 갱신됩니다.
-              </div>
-            </>
-          ) : (
-            <div>
-              <Lbl>이미지 URL *</Lbl>
-              <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://example.com/image.png"
-                aria-invalid={urlError ? true : undefined} aria-describedby={urlError ? "url-error" : undefined}
-                style={{ background: C.surface, border: `1px solid ${urlError ? C.error : C.border}`, borderRadius: 9, padding: "9px 12px", color: C.text, fontSize: 13, width: "100%" }} />
-              {urlError && <div id="url-error" role="alert" style={{ marginTop: 6, fontSize: 12, color: C.error, lineHeight: 1.4 }}>{urlError}</div>}
-            </div>
-          )}
-
-          <div><Lbl>이름</Lbl>
-            <input value={name} onChange={(e) => setName(e.target.value)} placeholder={defaultName}
-              style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 9, padding: "9px 12px", color: C.text, fontSize: 13, width: "100%" }} />
+      {tab === "kbo" ? (
+        <>
+          <div style={{ display: "flex", gap: 12 }}>
+            <Select label="구단" value={kbo.team} onChange={(v) => setKbo({ ...kbo, team: v })} options={TEAMS} />
+            <Select label="스타일" value={kbo.style} onChange={(v) => setKbo({ ...kbo, style: v })} options={STYLES} />
           </div>
+          <div style={{ display: "flex", gap: 12 }}>
+            <Select label="모드" value={kbo.mode} onChange={(v) => setKbo({ ...kbo, mode: v })} options={MODES} />
+            <Select label="해상도" value={kbo.res} onChange={(v) => setKbo({ ...kbo, res: v })} options={RES} flex={1.4} />
+          </div>
+        </>
+      ) : (
+        <TextField label="이미지 URL" type="url" value={url} onChange={setUrl} placeholder="https://example.com/image.png" error={urlError} />
+      )}
 
-          <div><Lbl>적용 대상</Lbl><TargetPicker value={target} onChange={setTarget} /></div>
-
-          {resolvedUrl && (
-            <div style={{ display: "flex", justifyContent: "center", marginTop: 4 }}>
-              <img src={resolvedUrl} alt="preview" style={{ width: 120, height: 213, objectFit: "cover", borderRadius: 14, border: `1px solid ${C.border}`, background: C.surface }}
-                onLoad={(e) => { (e.target as HTMLImageElement).style.opacity = "1"; }}
-                onError={(e) => { (e.target as HTMLImageElement).style.opacity = "0.25"; }} />
+      <div style={{ display: "flex", gap: 14, alignItems: "stretch" }}>
+        {resolvedUrl ? (
+          <Thumb src={previewUrl} width={90} height={160} alt="미리보기" />
+        ) : (
+          <div style={{ flexShrink: 0, width: 90, height: 160, boxSizing: "border-box", borderRadius: 12, background: C.bg, border: `1.5px dashed ${C.borderStrong}`, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, color: C.muted }}>
+            <Icon name="image" size={26} stroke={1.6} />
+            <span style={{ fontSize: 12, lineHeight: 1.3, textAlign: "center" }}>미리보기<br />대기 중</span>
+          </div>
+        )}
+        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", justifyContent: "center", gap: 10 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: C.sub }}>{tab === "kbo" ? "미리보기" : "이런 주소를 쓸 수 있어요"}</div>
+          {tab === "kbo" ? (
+            <div style={{ padding: 12, borderRadius: 12, background: C.tealWash, border: `1px solid ${C.tealLine}`, fontSize: 13, lineHeight: 1.5 }}>
+              <span style={{ color: C.teal, fontWeight: 700 }}>매일 최신 결과 · 매달 새 달력</span>으로 자동 갱신돼요. 연·월은 따로 지정하지 않아요.
+            </div>
+          ) : (
+            <div style={{ fontSize: 13, lineHeight: 1.6, color: C.muted }}>
+              https://로 시작하는 이미지 주소<br />(png · jpg · webp)<br />
+              KBO 월페이퍼는 <span style={{ color: C.accentText, fontWeight: 700 }}>KBO 빌더</span> 탭에서 만들 수 있어요.
             </div>
           )}
         </div>
-
-        <button onClick={submit} disabled={!resolvedUrl} style={{
-          width: "100%", marginTop: 18, opacity: resolvedUrl ? 1 : 0.4,
-          background: `linear-gradient(135deg,${C.accent},#7C3AED)`, border: "none",
-          borderRadius: 13, padding: 13, color: "white", fontSize: 14, fontWeight: 700, cursor: "pointer",
-        }}>{editing ? "저장" : "+ 추가하기"}</button>
       </div>
-    </div>
+
+      <TextField label="이름" optional value={name} onChange={setName} placeholder={defaultName} />
+
+      <div>
+        <Lbl id={targetLabelId}>적용 대상</Lbl>
+        <TargetPicker value={target} onChange={setTarget} labelledBy={targetLabelId} height={48} />
+      </div>
+
+      <button type="button" onClick={submit} disabled={!resolvedUrl} style={{
+        ...primaryBtn(52), marginTop: 4,
+        ...(resolvedUrl ? {} : { background: C.disabledBg, border: `1.5px solid ${C.disabledLine}`, color: C.muted, cursor: "default" }),
+      }}>{editing ? "저장" : "추가하기"}</button>
+    </Sheet>
   );
 }
