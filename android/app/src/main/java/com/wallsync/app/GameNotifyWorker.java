@@ -54,8 +54,14 @@ public class GameNotifyWorker extends Worker {
         Context ctx = getApplicationContext();
         // 설정의 단일 진실 원천은 SharedPreferences — 해제됐거나(비어 있음) 부팅 복구로 불린 경우도 동일하게 처리
         String team = GameNotifyScheduler.savedTeam(ctx);
+        if (team.isEmpty()) {
+            // 이전 버전이 등록한 워크는 설정이 입력 데이터에만 있다 → 처음 한 번 설정으로 옮겨 이어간다
+            if (!GameNotifyScheduler.adoptLegacy(ctx, getInputData().getString("team"), getInputData().getInt("lead", 60))) {
+                return Result.success(); // 알림이 꺼져 있음
+            }
+            team = GameNotifyScheduler.savedTeam(ctx);
+        }
         int lead = GameNotifyScheduler.savedLead(ctx);
-        if (team.isEmpty()) return Result.success(); // 알림이 꺼져 있음
 
         JSONObject root;
         try {

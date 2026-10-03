@@ -74,7 +74,7 @@ export function Editor({ editing, onSubmit, onClose }: { editing: Source | null;
             </div>
           ) : (
             <div style={{ fontSize: 13, lineHeight: 1.6, color: C.muted }}>
-              https://로 시작하는 이미지 주소<br />(png · jpg · webp)<br />
+              http:// 또는 https://로 시작하는 이미지 주소<br />(png · jpg · webp)<br />
               KBO 월페이퍼는 <span style={{ color: C.accentText, fontWeight: 700 }}>KBO 빌더</span> 탭에서 만들 수 있어요.
             </div>
           )}

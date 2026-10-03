@@ -13,17 +13,16 @@ describe("validateImageUrl", () => {
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error).toContain("형식");
   });
-  it("http 는 거부하고 이유를 알려준다", () => {
-    const r = validateImageUrl("http://example.com/a.png");
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error).toContain("https");
+  it("http URL 도 통과 (앱이 cleartext 를 전역 허용하는 것이 의도된 계약)", () => {
+    expect(validateImageUrl("http://example.com/a.png")).toEqual({ ok: true, url: "http://example.com/a.png" });
   });
   it("javascript:, data:, file: 등 다른 스킴은 거부", () => {
     for (const u of ["javascript:alert(1)", "data:image/png;base64,AAAA", "file:///sdcard/a.png", "ftp://x.com/a.png"]) {
       expect(validateImageUrl(u).ok).toBe(false);
     }
   });
-  it("https:// 만 있고 호스트가 없으면 거부", () => {
+  it("호스트가 없으면 거부", () => {
     expect(validateImageUrl("https://").ok).toBe(false);
+    expect(validateImageUrl("http://").ok).toBe(false);
   });
 });
