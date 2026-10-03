@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { Capacitor } from "@capacitor/core";
 import { Wallpaper, WallpaperTarget, SyncResult } from "./wallpaper";
-import { scheduleGameNotifications, cancelGameNotifications, hasNotifPermission } from "./notifications";
+import { scheduleGameNotifications, cancelGameNotifications, hasNotifPermission, migrateLegacyNotifications } from "./notifications";
 import { Source, Schedule, NotifSettings, BackupExtra, ToastMsg, ToastAction } from "./types";
 import { C, teamColor } from "./theme";
 import { rel, targetLabel } from "./lib/format";
@@ -51,6 +51,9 @@ export default function App() {
     if (n) { setNotif(n); setNotifSaved(true); }
     setLoaded(true);
   }, []);
+
+  // 구버전이 예약한 로컬 알림 정리 (중복 알림 방지, 1회성)
+  useEffect(() => { if (loaded) migrateLegacyNotifications(); }, [loaded]);
 
   // 앱을 열 때 알림이 켜져 있으면 다가오는 경기로 다시 예약
   useEffect(() => {

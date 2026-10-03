@@ -168,3 +168,12 @@
 1. **R1, R2** — 모드 전환 정확성 + 릴리스 품질 게이트. 비교적 작은 변경으로 처리 가능.
 2. **R3** — Play 배포 착수 시점에 필수.
 3. 나머지(R4~R10) — 보안 강화·테스트·릴리스 자동화 단계에서 정리.
+
+### ✅ 9차 수정 내역 — C-1 코드 리뷰 반영
+- **재부팅·앱 업데이트 복구**: `GameBootReceiver`(BOOT_COMPLETED / MY_PACKAGE_REPLACED)가 즉시 1회 워커를 돌려 소실된 알람을 복구(이전엔 다음 일일 주기까지 최대 24h 공백).
+- **설정 단일 원천**: 팀·리드타임을 SharedPreferences에 저장(`GameNotifyScheduler`). 워커는 입력 데이터가 아닌 저장값을 읽는다.
+- **해제 레이스 제거**: 해제는 설정을 먼저 지우고 락 안에서 알람을 취소, 워커는 락 안에서 설정을 재확인 후 예약 → 해제 뒤 알람이 남지 않음. 경기별 try/catch로 일부 데이터 오류가 전체 예약·id 저장을 막지 않음. JSON 형식 오류는 재시도하지 않음.
+- **구 알림 마이그레이션**: 앱 시작 시 이전 버전의 LocalNotifications 예약분을 1회 취소(중복 알림 방지). 충분한 릴리스 후 이 코드와 `@capacitor/local-notifications` 의존성 제거 가능.
+- **notifId 일치**: TS·Java 해시를 동일 규칙(부호 있는 32bit + 최상위 비트 제거)으로 통일하고 같은 고정 벡터를 양쪽 테스트(`GameNotifyConstTest`, `schedule-plan.test.ts`)로 검증. `Math.abs(MIN_VALUE)` 음수 id 가능성 제거.
+- 기타: 알림 탭 시 앱 열기, 날짜 엄격 파싱(`setLenient(false)`), API의 영문 status(`canceled`) 제외.
+- **실기기 확인 필요**: 재부팅 후 복구 동작, 알림 탭 동작. (Android SDK가 없는 환경이라 Java는 컴파일하지 못함 — CI 빌드로 확인)

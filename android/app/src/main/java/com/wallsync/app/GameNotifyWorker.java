@@ -12,6 +12,7 @@ import androidx.work.Worker;
 import androidx.work.WorkerParameters;
 
 import org.json.JSONArray;
+import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.ByteArrayOutputStream;
@@ -39,7 +40,7 @@ public class GameNotifyWorker extends Worker {
 
     private static final String SCHED_BASE = "https://kbo-wallpaper.vercel.app/api/schedule";
     private static final Pattern TIME_RE = Pattern.compile("^\\d{1,2}:\\d{2}$");
-    private static final Pattern SKIP_STATUS = Pattern.compile("취소|연기|중단|노게임|서스펜디드");
+    private static final Pattern SKIP_STATUS = Pattern.compile("canceled|취소|연기|중단|노게임|서스펜디드");
     private static final int MAX_GAMES = 30;
     private static final int MAX_ATTEMPTS = 5;
 
@@ -50,18 +51,36 @@ public class GameNotifyWorker extends Worker {
     @NonNull
     @Override
     public Result doWork() {
-        String team = getInputData().getString("team");
-        int lead = getInputData().getInt("lead", 60);
-        if (team == null || team.isEmpty()) return Result.failure();
-
         Context ctx = getApplicationContext();
+        // 설정의 단일 진실 원천은 SharedPreferences — 해제됐거나(비어 있음) 부팅 복구로 불린 경우도 동일하게 처리
+        String team = GameNotifyScheduler.savedTeam(ctx);
+        int lead = GameNotifyScheduler.savedLead(ctx);
+        if (team.isEmpty()) return Result.success(); // 알림이 꺼져 있음
+
+        JSONObject root;
         try {
             String body = httpGet(SCHED_BASE + "?team=" + URLEncoder.encode(team, "UTF-8") + "&months=2");
-            JSONObject root = new JSONObject(body);
-            String shortName = root.optJSONObject("team") != null
-                    ? root.getJSONObject("team").optString("short", team) : team;
-            JSONArray games = root.optJSONArray("games");
-            if (games == null) games = new JSONArray();
+            root = new JSONObject(body);
+        } catch (JSONException e) {
+            // 응답 형식 오류는 재시도해도 같다 → 이번 회차 포기(다음 날 주기 실행에서 복구)
+            return Result.failure();
+        } catch (Exception e) {
+            // 네트워크 등 일시 오류 → 재시도. 한도 넘으면 이번 회차 포기.
+            if (getRunAttemptCount() >= MAX_ATTEMPTS - 1) return Result.failure();
+            return Result.retry();
+        }
+
+        String shortName = root.optJSONObject("team") != null
+                ? root.optJSONObject("team").optString("short", team) : team;
+        JSONArray games = root.optJSONArray("games");
+        if (games == null) games = new JSONArray();
+
+        // 해제(disable)와 겹치지 않도록 락 안에서 설정을 다시 확인한 뒤 예약한다.
+        synchronized (GameNotifyConst.LOCK) {
+            if (isStopped() || !team.equals(GameNotifyScheduler.savedTeam(ctx))
+                    || lead != GameNotifyScheduler.savedLead(ctx)) {
+                return Result.success(); // 해제됐거나 설정이 바뀜 → 새 설정의 워커가 처리
+            }
 
             // 매 실행마다 기존 알람을 지우고 최신 일정으로 다시 건다 (드리프트·중복 방지)
             cancelAllAlarms(ctx);
@@ -69,6 +88,7 @@ public class GameNotifyWorker extends Worker {
             AlarmManager am = (AlarmManager) ctx.getSystemService(Context.ALARM_SERVICE);
             SimpleDateFormat fmt = new SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.KOREA);
             fmt.setTimeZone(TimeZone.getTimeZone("Asia/Seoul"));
+            fmt.setLenient(false); // 2026-02-31 같은 값을 다음 달로 넘기지 않고 거부
 
             long now = System.currentTimeMillis();
             List<Integer> ids = new ArrayList<>();
@@ -76,41 +96,39 @@ public class GameNotifyWorker extends Worker {
             int count = Math.min(games.length(), MAX_GAMES);
 
             for (int i = 0; i < count; i++) {
-                JSONObject g = games.getJSONObject(i);
-                String status = g.optString("status", "");
-                if (!status.isEmpty() && SKIP_STATUS.matcher(status).find()) continue;
-                String time = g.optString("time", "");
-                if (!TIME_RE.matcher(time).matches()) continue;
-                String date = g.optString("date", "");
+                // 한 경기 데이터가 이상해도 나머지 경기는 계속 예약한다
+                try {
+                    JSONObject g = games.getJSONObject(i);
+                    String status = g.optString("status", "");
+                    if (!status.isEmpty() && SKIP_STATUS.matcher(status).find()) continue;
+                    String time = g.optString("time", "");
+                    if (!TIME_RE.matcher(time).matches()) continue;
+                    String date = g.optString("date", "");
 
-                String[] hm = time.split(":");
-                String padded = (hm[0].length() == 1 ? "0" + hm[0] : hm[0]) + ":" + hm[1];
-                Date parsed;
-                try { parsed = fmt.parse(date + " " + padded); } catch (Exception e) { continue; }
-                if (parsed == null) continue;
-                long at = parsed.getTime() - lead * 60000L;
-                if (at <= now + 60000) continue;
+                    String[] hm = time.split(":");
+                    String padded = (hm[0].length() == 1 ? "0" + hm[0] : hm[0]) + ":" + hm[1];
+                    Date parsed = fmt.parse(date + " " + padded);
+                    if (parsed == null) continue;
+                    long at = parsed.getTime() - lead * 60000L;
+                    if (at <= now + 60000) continue;
 
-                int id = GameNotifyConst.notifId(date + time);
-                if (seen.contains(id)) continue;
-                seen.add(id);
+                    int id = GameNotifyConst.notifId(date + time);
+                    if (seen.contains(id)) continue;
+                    seen.add(id);
 
-                boolean home = g.optBoolean("home", true);
-                String opp = g.optString("opponent", "");
-                String stadium = g.optString("stadium", "");
-                String title = "⚾ " + shortName + " 경기 " + lead + "분 전";
-                String text = (home ? "vs " : "@ ") + opp + " · " + time + (stadium.isEmpty() ? "" : " · " + stadium);
+                    boolean home = g.optBoolean("home", true);
+                    String opp = g.optString("opponent", "");
+                    String stadium = g.optString("stadium", "");
+                    String title = "⚾ " + shortName + " 경기 " + lead + "분 전";
+                    String text = (home ? "vs " : "@ ") + opp + " · " + time + (stadium.isEmpty() ? "" : " · " + stadium);
 
-                scheduleAlarm(ctx, am, id, at, title, text);
-                ids.add(id);
+                    scheduleAlarm(ctx, am, id, at, title, text);
+                    ids.add(id);
+                } catch (Exception ignored) { /* 해당 경기만 건너뜀 */ }
             }
 
             saveIds(ctx, ids);
             return Result.success();
-        } catch (Exception e) {
-            // 네트워크 등 일시 오류 → 재시도. 한도 넘으면 이번 회차 포기(다음 날 주기 실행에서 복구).
-            if (getRunAttemptCount() >= MAX_ATTEMPTS - 1) return Result.failure();
-            return Result.retry();
         }
     }
 
