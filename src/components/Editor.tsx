@@ -4,6 +4,7 @@ import { WallpaperTarget } from "../wallpaper";
 import { C } from "../theme";
 import { TEAMS, STYLES, MODES, RES, buildKboUrl } from "../lib/kbo";
 import { uid } from "../lib/uid";
+import { validateImageUrl } from "../lib/url";
 import { Lbl, TargetPicker } from "./common";
 
 // ─── 추가/편집 모달 ────────────────────────────────────────────────────────────────
@@ -14,7 +15,10 @@ export function Editor({ editing, onSubmit, onClose }: { editing: Source | null;
   const [target, setTarget] = useState<WallpaperTarget>(editing?.target ?? "both");
   const [kbo, setKbo] = useState<KboConfig>(editing?.kbo ?? { team: "KIA", style: "minimal", mode: "dark", res: "android-fhd" });
 
-  const resolvedUrl = tab === "kbo" ? buildKboUrl(kbo) : url.trim();
+  // 직접 URL은 검증을 통과한 값만 사용한다 (잘못된 값이 카드·자동 갱신으로 새어 들어가지 않게)
+  const urlCheck = validateImageUrl(url);
+  const urlError = tab === "url" && url.trim() && !urlCheck.ok ? urlCheck.error : null;
+  const resolvedUrl = tab === "kbo" ? buildKboUrl(kbo) : urlCheck.ok ? urlCheck.url : "";
   const teamLabelTxt = TEAMS.find((t) => t[0] === kbo.team)?.[1] ?? kbo.team;
   const defaultName = tab === "kbo" ? teamLabelTxt : "내 배경화면";
 
@@ -81,7 +85,9 @@ export function Editor({ editing, onSubmit, onClose }: { editing: Source | null;
             <div>
               <Lbl>이미지 URL *</Lbl>
               <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://example.com/image.png"
-                style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 9, padding: "9px 12px", color: C.text, fontSize: 13, width: "100%" }} />
+                aria-invalid={urlError ? true : undefined} aria-describedby={urlError ? "url-error" : undefined}
+                style={{ background: C.surface, border: `1px solid ${urlError ? C.error : C.border}`, borderRadius: 9, padding: "9px 12px", color: C.text, fontSize: 13, width: "100%" }} />
+              {urlError && <div id="url-error" role="alert" style={{ marginTop: 6, fontSize: 12, color: C.error, lineHeight: 1.4 }}>{urlError}</div>}
             </div>
           )}
 

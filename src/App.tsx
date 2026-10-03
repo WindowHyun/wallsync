@@ -315,7 +315,11 @@ export default function App() {
       <div style={{ maxWidth: 760, margin: "0 auto", padding: "24px 18px 60px" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8, flexWrap: "wrap", gap: 10 }}>
           <div>
-            <h1 style={{ margin: 0, fontSize: 24, fontWeight: 900, letterSpacing: "-0.5px", background: `linear-gradient(90deg,${C.accent},#A78BFA)`, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>🖼️ WallSync</h1>
+            <h1 style={{ margin: 0, fontSize: 24, fontWeight: 900, letterSpacing: "-0.5px", display: "flex", alignItems: "center", gap: 8 }}>
+              {/* 이모지는 그라디언트 클립 밖에 둔다 — text-fill: transparent 가 이모지를 단색 네모로 칠한다 */}
+              <span aria-hidden="true">🖼️</span>
+              <span style={{ background: `linear-gradient(90deg,${C.accent},#A78BFA)`, WebkitBackgroundClip: "text", backgroundClip: "text", WebkitTextFillColor: "transparent" }}>WallSync</span>
+            </h1>
             <p style={{ margin: "3px 0 0", color: C.sub, fontSize: 12 }}>URL·KBO 배경화면 자동 갱신</p>
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
