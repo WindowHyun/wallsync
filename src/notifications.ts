@@ -1,4 +1,5 @@
 import { Capacitor } from "@capacitor/core";
+import { LocalNotifications } from "@capacitor/local-notifications";
 import { Wallpaper } from "./wallpaper";
 
 // 경기 알림은 네이티브 백그라운드 워커(GameNotifyWorker)가 담당한다.
@@ -28,4 +29,24 @@ export async function scheduleGameNotifications(team: string, lead: number): Pro
 export async function cancelGameNotifications(): Promise<void> {
   if (!native) return;
   try { await Wallpaper.cancelGameWorker(); } catch { /* ignore */ }
+}
+
+// ── 구버전(Capacitor LocalNotifications) 마이그레이션 ─────────────────────────
+// 이전 버전이 예약해 둔 알림은 새 네이티브 워커와 별개라, 정리하지 않으면 같은 경기에 알림이 두 번 뜬다.
+// 한 번 정리되면 키가 지워져 이후에는 아무 일도 하지 않는다. (충분한 릴리스가 지나면 이 함수와
+// @capacitor/local-notifications 의존성을 함께 제거해도 된다.)
+const LEGACY_IDS_KEY = "wallsync.notif.ids";
+const LEGACY_CACHE_KEY = "wallsync.sched.cache.v1";
+
+export async function migrateLegacyNotifications(): Promise<void> {
+  if (!native) return;
+  try {
+    const raw = localStorage.getItem(LEGACY_IDS_KEY);
+    if (raw) {
+      const ids: number[] = JSON.parse(raw);
+      if (ids.length) await LocalNotifications.cancel({ notifications: ids.map((id) => ({ id })) });
+      localStorage.removeItem(LEGACY_IDS_KEY);
+    }
+    localStorage.removeItem(LEGACY_CACHE_KEY);
+  } catch { /* 실패하면 키가 남아 다음 실행에서 다시 시도 */ }
 }

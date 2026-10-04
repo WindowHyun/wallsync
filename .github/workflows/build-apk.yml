@@ -27,8 +27,12 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
+      # 러너 이미지에 SDK가 이미 설치돼 있다. 액션의 기본 설치 목록(tools platform-tools)에 든 'tools'는
+      # 폐기된 패키지라 최신 sdkmanager 가 "Failed to find package 'tools'" 로 실패하므로 패키지 설치는 건너뛴다.
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          packages: ''
 
       - name: Install dependencies
         run: npm ci

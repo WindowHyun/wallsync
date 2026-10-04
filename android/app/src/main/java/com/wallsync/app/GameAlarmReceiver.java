@@ -2,6 +2,7 @@ package com.wallsync.app;
 
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
+import android.app.PendingIntent;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
@@ -36,10 +37,19 @@ public class GameAlarmReceiver extends BroadcastReceiver {
             }
         }
 
+        // 알림을 탭하면 앱을 연다
+        PendingIntent open = null;
+        Intent launch = ctx.getPackageManager().getLaunchIntentForPackage(ctx.getPackageName());
+        if (launch != null) {
+            open = PendingIntent.getActivity(ctx, nid, launch,
+                    PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        }
+
         NotificationCompat.Builder b = new NotificationCompat.Builder(ctx, GameNotifyConst.CHANNEL_ID)
                 .setSmallIcon(ctx.getApplicationInfo().icon)
                 .setContentTitle(title)
                 .setContentText(body)
+                .setContentIntent(open)
                 .setAutoCancel(true)
                 .setPriority(NotificationCompat.PRIORITY_HIGH);
 

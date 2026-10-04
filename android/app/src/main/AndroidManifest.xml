@@ -29,6 +29,16 @@
         <receiver
             android:name=".GameAlarmReceiver"
             android:exported="false" />
+
+        <!-- 재부팅·앱 업데이트 후 사라진 경기 알람 복구 -->
+        <receiver
+            android:name=".GameBootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
     </application>
 
     <!-- Permissions -->

@@ -14,14 +14,16 @@ export interface SchedResponse {
 export interface PlannedNotification { id: number; title: string; body: string; at: number }
 
 // 알림이 무의미한 경기 상태 (취소·연기 등)
-const SKIP_STATUS = /취소|연기|중단|노게임|서스펜디드/;
+const SKIP_STATUS = /canceled|취소|연기|중단|노게임|서스펜디드/;
 const TIME_RE = /^\d{1,2}:\d{2}$/;
 const MAX_GAMES = 30;
 
+// Java GameNotifyConst.notifId 와 같은 결과여야 한다 (부호 있는 32bit 오버플로 후 최상위 비트 제거).
+// 양쪽 테스트가 같은 고정 벡터를 검증한다.
 export function notifId(s: string): number {
   let h = 0;
-  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
-  return 100000 + (h % 900000);
+  for (let i = 0; i < s.length; i++) h = (Math.imul(h, 31) + s.charCodeAt(i)) | 0;
+  return 100000 + ((h & 0x7fffffff) % 900000);
 }
 
 /**

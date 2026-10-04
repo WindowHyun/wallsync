@@ -1,10 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
 import { Capacitor } from "@capacitor/core";
 import { Wallpaper, WallpaperTarget, SyncResult } from "./wallpaper";
-import { scheduleGameNotifications, cancelGameNotifications, hasNotifPermission } from "./notifications";
+import { scheduleGameNotifications, cancelGameNotifications, hasNotifPermission, migrateLegacyNotifications } from "./notifications";
 import { Source, Schedule, NotifSettings, BackupExtra, ToastMsg, ToastAction } from "./types";
-import { C, teamColor } from "./theme";
-import { rel, targetLabel } from "./lib/format";
+import { C } from "./theme";
 import { resolveActive } from "./lib/active";
 import { uid } from "./lib/uid";
 import * as store from "./storage";
@@ -13,6 +12,7 @@ import { ScheduleModal } from "./components/ScheduleModal";
 import { NotifModal } from "./components/NotifModal";
 import { BackupModal } from "./components/BackupModal";
 import { SourceCard } from "./components/SourceCard";
+import { Icon, Notice, iconBtn, outlineBtn, primaryBtn } from "./components/common";
 
 const native = Capacitor.isNativePlatform();
 
@@ -52,6 +52,9 @@ export default function App() {
     setLoaded(true);
   }, []);
 
+  // 구버전이 예약한 로컬 알림 정리 (중복 알림 방지, 1회성)
+  useEffect(() => { if (loaded) migrateLegacyNotifications(); }, [loaded]);
+
   // 앱을 열 때 알림이 켜져 있으면 다가오는 경기로 다시 예약
   useEffect(() => {
     if (!(loaded && native && notif.enabled)) return;
@@ -60,9 +63,9 @@ export default function App() {
       if (!(await hasNotifPermission())) return;
       try {
         await scheduleGameNotifications(notif.team, notif.lead);
-        checkExactAlarm();
+        // 정시 알람 허용 안내는 알림 시트 안에 상시 표시하므로, 앱을 열 때마다 토스트로 띄우지 않는다
       } catch {
-        toast("경기 알림 재예약 실패 — 🔔 설정을 다시 확인해주세요", "warn");
+        toast("경기 알림을 다시 예약하지 못했어요. 알림 설정을 확인해 주세요", "warn");
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -112,7 +115,7 @@ export default function App() {
     try {
       const r = await Wallpaper.canScheduleExactAlarms();
       if (!r.allowed) {
-        toast("정시 알림을 받으려면 '알람 및 리마인더' 허용이 필요합니다", "warn", {
+        toast("정시 알림을 받으려면 ‘알람 및 리마인더’ 허용이 필요해요", "warn", {
           label: "설정 열기",
           fn: () => { Wallpaper.openExactAlarmSettings().catch(() => {}); },
         });
@@ -123,7 +126,7 @@ export default function App() {
   const saveNotif = async (next: NotifSettings) => {
     if (!native) {
       persistNotif(next);
-      toast("알림은 설치된 앱에서만 동작합니다", "warn");
+      toast("알림은 설치한 앱에서만 동작해요", "warn");
       return;
     }
     try {
@@ -131,24 +134,24 @@ export default function App() {
         // 예약이 실제로 성공했을 때만 '켜짐'으로 저장 (표시=실제 일치)
         await scheduleGameNotifications(next.team, next.lead);
         persistNotif(next);
-        toast("🔔 경기 알림 켜짐 — 매일 자동 예약됩니다");
+        toast("경기 알림을 켰어요. 매일 자동으로 예약돼요");
         checkExactAlarm();
       } else {
         await cancelGameNotifications();
         persistNotif(next);
-        toast("경기 알림 해제됨", "warn");
+        toast("경기 알림을 껐어요", "warn");
       }
-    } catch (e) { toast((e as Error).message || "알림 예약 실패", "error"); }
+    } catch (e) { toast((e as Error).message || "알림을 예약하지 못했어요", "error"); }
   };
 
   const handleApply = async (s: Source) => {
-    if (!native) { toast("실제 적용은 설치된 앱에서만 동작합니다", "warn"); return; }
+    if (!native) { toast("실제 적용은 설치한 앱에서만 동작해요", "warn"); return; }
     try {
       await Wallpaper.apply({ url: s.url, target: s.target });
       setSources((p) => p.map((x) => (x.id === s.id ? { ...x, lastApplied: Date.now() } : x)));
       setActiveId(s.id);
-      toast("✓ 배경화면 적용됨");
-    } catch (e) { toast((e as Error).message || "적용 실패", "error"); }
+      toast("배경화면을 적용했어요");
+    } catch (e) { toast((e as Error).message || "적용하지 못했어요", "error"); }
   };
 
   const handleTarget = async (id: string, target: WallpaperTarget) => {
@@ -171,10 +174,10 @@ export default function App() {
       if (native && next.auto && next.schedule) {
         try { await scheduleNative(next.id, next.url, next.target, next.schedule); } catch { /* ignore */ }
       }
-      toast(`✓ "${s.name}" 수정됨`);
+      toast(`“${s.name}”을 수정했어요`);
     } else {
       setSources((p) => [s, ...p]);
-      toast(`✓ "${s.name}" 추가됨`);
+      toast(`“${s.name}”을 추가했어요`);
     }
   };
 
@@ -182,26 +185,26 @@ export default function App() {
     const s = sources.find((x) => x.id === id);
     if (!s) return;
     setSources((p) => p.map((x) => (x.id === id ? { ...x, auto, schedule } : x)));
-    if (!native) { toast("예약은 설치된 앱에서만 동작합니다", "warn"); return; }
+    if (!native) { toast("예약은 설치한 앱에서만 동작해요", "warn"); return; }
     try {
       if (auto && schedule) {
         // 같은 화면을 갱신하는 다른 자동 소스가 있으면 마지막 실행이 덮어씀 → 미리 경고
         const clash = sources.find((x) => x.id !== id && x.auto && targetsOverlap(x.target, s.target));
-        if (clash) toast(`⚠ "${clash.name}"도 같은 화면을 자동 갱신 중 — 나중에 실행된 쪽이 덮어씁니다`, "warn");
+        if (clash) toast(`“${clash.name}”도 같은 화면을 자동 갱신 중이에요. 나중에 실행된 쪽이 덮어써요`, "warn");
         await scheduleNative(id, s.url, s.target, schedule);
         try { await Wallpaper.requestNotificationPermission(); } catch { /* ignore */ }
-        toast("⏰ 자동 갱신 예약됨");
+        toast("자동 갱신을 예약했어요");
       } else {
         await Wallpaper.cancel({ id });
-        toast("자동 갱신 해제됨", "warn");
+        toast("자동 갱신을 껐어요", "warn");
       }
       refreshSync();
-    } catch (e) { toast((e as Error).message || "예약 실패", "error"); }
+    } catch (e) { toast((e as Error).message || "예약하지 못했어요", "error"); }
   };
 
   const handleCopy = async (s: Source) => {
-    try { await navigator.clipboard.writeText(s.url); toast("URL 복사됨"); }
-    catch { toast("복사 실패 — 길게 눌러 직접 복사하세요", "warn"); }
+    try { await navigator.clipboard.writeText(s.url); toast("URL을 복사했어요"); }
+    catch { toast("복사하지 못했어요. 길게 눌러 직접 복사해 주세요", "warn"); }
   };
 
   // 복원: 기존 예약을 모두 취소하고 가져온 목록으로 교체, 자동 소스는 재예약
@@ -223,7 +226,7 @@ export default function App() {
       persistNotif(extra.notif);
       if (native && extra.notif.enabled) {
         scheduleGameNotifications(extra.notif.team, extra.notif.lead).catch(() =>
-          toast("경기 알림 재예약 실패 — 🔔 설정을 다시 확인해주세요", "warn"));
+          toast("경기 알림을 다시 예약하지 못했어요. 알림 설정을 확인해 주세요", "warn"));
       }
     }
   };
@@ -233,7 +236,7 @@ export default function App() {
     setSources((p) => p.filter((x) => x.id !== s.id));
     if (activeId === s.id) setActiveId(null);
     if (native) { Wallpaper.cancel({ id: s.id }).catch(() => {}); }
-    toast(`"${s.name}" 삭제됨`, "warn", {
+    toast(`“${s.name}”을 삭제했어요`, "warn", {
       label: "실행취소",
       fn: () => {
         setSources((p) => {
@@ -250,7 +253,7 @@ export default function App() {
 
   // 자동 갱신 소스들을 지금 즉시 다시 내려받아 적용 (KBO는 매일 이미지가 바뀌므로 강제 최신화)
   const handleApplyAll = async () => {
-    if (!native) { toast("실제 적용은 설치된 앱에서만 동작합니다", "warn"); return; }
+    if (!native) { toast("실제 적용은 설치한 앱에서만 동작해요", "warn"); return; }
     const autos = sources.filter((s) => s.auto);
     if (autos.length === 0) return;
     setApplying(true);
@@ -266,11 +269,11 @@ export default function App() {
       setActiveId(autos[autos.length - 1].id);
     }
     setApplying(false);
-    toast(ok === autos.length ? `✓ ${ok}개 갱신 완료` : `${ok}/${autos.length}개 갱신 (일부 실패)`, ok === autos.length ? "success" : "warn");
+    toast(ok === autos.length ? `${ok}개를 갱신했어요` : `${ok}/${autos.length}개를 갱신했어요 (일부 실패)`, ok === autos.length ? "success" : "warn");
   };
 
   const autoCount = sources.filter((s) => s.auto).length;
-  const { src: activeSrc, time: activeTime } = resolveActive(sources, activeId, syncStatus);
+  const { src: activeSrc } = resolveActive(sources, activeId, syncStatus);
 
   // 알림 설정을 저장한 적 없으면 첫 KBO 소스의 팀을 기본 응원팀으로 제안
   const notifForModal = notifSaved
@@ -278,25 +281,35 @@ export default function App() {
     : { ...notif, team: sources.find((s) => s.type === "kbo")?.kbo?.team ?? notif.team };
 
   return (
-    <div style={{ minHeight: "100vh", background: C.bg, color: C.text, fontFamily: "'Segoe UI',-apple-system,'Noto Sans KR',sans-serif" }}>
+    <div style={{ minHeight: "100vh", background: C.bg, color: C.text, fontFamily: "'Noto Sans KR','Segoe UI',-apple-system,sans-serif" }}>
       <style>{`
-        @keyframes toastIn { from{opacity:0;transform:translateY(-10px)} to{opacity:1;transform:translateY(0)} }
-        *{box-sizing:border-box} input,select{font-family:inherit} input::placeholder{color:${C.muted}}
+        html,body{margin:0;background:${C.bg};color-scheme:dark}
+        *{box-sizing:border-box} button,input,select,textarea{font-family:inherit}
+        input::placeholder,textarea::placeholder{color:${C.muted}}
+        :focus-visible{outline:3px solid #fff;outline-offset:2px}
         ::-webkit-scrollbar{width:5px} ::-webkit-scrollbar-thumb{background:${C.border};border-radius:4px}
+        @keyframes toastIn { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:translateY(0)} }
+        @keyframes sheetIn { from{transform:translateY(24px);opacity:0.6} to{transform:translateY(0);opacity:1} }
+        @media (prefers-reduced-motion: reduce){ *{animation:none!important;transition:none!important} }
       `}</style>
 
-      <div style={{ position: "fixed", top: 16, right: 16, zIndex: 999, display: "flex", flexDirection: "column", gap: 8 }}>
+      {/* 토스트: 화면 아래(추가 버튼 위)에 쌓아 제목·헤더를 가리지 않는다 */}
+      <div role="status" aria-live="polite" style={{
+        position: "fixed", left: 16, right: 16, bottom: "calc(92px + env(safe-area-inset-bottom))", zIndex: 999,
+        display: "flex", flexDirection: "column", gap: 10, alignItems: "center", pointerEvents: "none",
+      }}>
         {toasts.map((t) => (
           <div key={t.id} style={{
-            background: t.type === "error" ? C.error : t.type === "warn" ? C.warn : C.success,
-            color: t.type === "warn" ? "#000" : "#fff", borderRadius: 10, padding: "10px 14px",
-            fontSize: 13, fontWeight: 600, boxShadow: "0 8px 28px rgba(0,0,0,0.5)", animation: "toastIn 0.25s ease", maxWidth: 320,
-            display: "flex", alignItems: "center", gap: 12,
+            pointerEvents: "auto", width: "100%", maxWidth: 440, boxSizing: "border-box", minHeight: 48,
+            background: t.type === "error" ? C.toastError : t.type === "warn" ? C.warn : C.toastSuccess,
+            color: t.type === "warn" ? C.onWarn : "#fff", borderRadius: 14, padding: t.action ? "4px 4px 4px 16px" : "12px 16px",
+            fontSize: 14, fontWeight: 700, lineHeight: 1.4, boxShadow: "0 10px 28px rgba(0,0,0,0.5)", animation: "toastIn 0.25s ease",
+            display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12,
           }}>
             <span>{t.msg}</span>
             {t.action && (
-              <button onClick={() => { t.action!.fn(); setToasts((p) => p.filter((x) => x.id !== t.id)); }}
-                style={{ background: "rgba(0,0,0,0.18)", border: "none", borderRadius: 7, padding: "4px 10px", color: "inherit", fontSize: 12, fontWeight: 800, cursor: "pointer", whiteSpace: "nowrap" }}>
+              <button type="button" onClick={() => { t.action!.fn(); setToasts((p) => p.filter((x) => x.id !== t.id)); }}
+                style={{ height: 44, padding: "0 16px", border: "none", borderRadius: 10, background: "rgba(0,0,0,0.18)", color: "inherit", fontFamily: "inherit", fontSize: 14, fontWeight: 900, cursor: "pointer", whiteSpace: "nowrap" }}>
                 {t.action.label}
               </button>
             )}
@@ -309,69 +322,78 @@ export default function App() {
       {showBackup && <BackupModal sources={sources} notif={notif} activeId={activeId} onImport={handleImport} onClose={() => setShowBackup(false)} toast={toast} />}
       {schedFor && <ScheduleModal src={schedFor} onSave={(auto, s) => handleSchedSave(schedFor.id, auto, s)} onTest={() => handleApply(schedFor)} onClose={() => setSchedFor(null)} />}
 
-      <div style={{ maxWidth: 760, margin: "0 auto", padding: "24px 18px 60px" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8, flexWrap: "wrap", gap: 10 }}>
-          <div>
-            <h1 style={{ margin: 0, fontSize: 24, fontWeight: 900, letterSpacing: "-0.5px", background: `linear-gradient(90deg,${C.accent},#A78BFA)`, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>🖼️ WallSync</h1>
-            <p style={{ margin: "3px 0 0", color: C.sub, fontSize: 12 }}>URL·KBO 배경화면 자동 갱신</p>
+      <div style={{ maxWidth: 560, margin: "0 auto", padding: "0 0 120px" }}>
+        {/* 헤더 */}
+        <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "20px 16px 8px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
+            <div aria-hidden="true" style={{ width: 40, height: 40, borderRadius: 12, background: C.accent, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+              <Icon name="image" size={22} />
+            </div>
+            <div style={{ minWidth: 0 }}>
+              <h1 style={{ margin: 0, fontSize: 22, fontWeight: 900, letterSpacing: "-0.5px", lineHeight: 1.2 }}>WallSync</h1>
+              <div style={{ fontSize: 13, color: C.sub, lineHeight: 1.3 }}>KBO·URL 배경화면 자동 갱신</div>
+            </div>
           </div>
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            {autoCount > 0 && <div style={{ padding: "6px 12px", borderRadius: 10, background: C.tealSoft, border: `1px solid ${C.teal}`, color: C.teal, fontSize: 12, fontWeight: 700 }}>⚡ {autoCount}개 자동</div>}
-            {autoCount > 0 && <button onClick={handleApplyAll} disabled={applying} title="자동 소스 지금 갱신" aria-label="자동 소스 지금 갱신" style={{ background: "transparent", border: `1px solid ${C.border}`, borderRadius: 11, padding: "9px 12px", color: C.sub, fontSize: 13, fontWeight: 700, cursor: applying ? "default" : "pointer", opacity: applying ? 0.5 : 1 }}>{applying ? "…" : "🔄 갱신"}</button>}
-            <button onClick={() => setShowNotif(true)} title="경기 알림" aria-label="경기 알림 설정" style={{ background: notif.enabled ? C.tealSoft : "transparent", border: `1px solid ${notif.enabled ? C.teal : C.border}`, borderRadius: 11, padding: "9px 12px", color: notif.enabled ? C.teal : C.sub, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>🔔</button>
-            {sources.length > 0 && <button onClick={() => setShowBackup(true)} title="백업 / 복원" style={{ background: "transparent", border: `1px solid ${C.border}`, borderRadius: 11, padding: "9px 14px", color: C.sub, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>⤓ 백업</button>}
-            <button onClick={() => setEditor({ editing: null })} style={{ background: `linear-gradient(135deg,${C.accent},#7C3AED)`, border: "none", borderRadius: 11, padding: "9px 18px", color: "white", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>+ 추가</button>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button type="button" onClick={() => setShowNotif(true)} aria-label={`경기 알림 설정 (${notif.enabled ? "켜짐" : "꺼짐"})`} style={iconBtn(notif.enabled)}>
+              <Icon name="bell" />
+            </button>
+            <button type="button" onClick={() => setShowBackup(true)} aria-label="백업 / 복원" style={iconBtn(false)}>
+              <Icon name="download" />
+            </button>
           </div>
-        </div>
+        </header>
 
+        {/* 상태 스트립 */}
         {!native && (
-          <div style={{ margin: "12px 0 4px", padding: "10px 14px", borderRadius: 10, background: C.warn, color: "#000", fontSize: 12, fontWeight: 600 }}>
-            ⚠️ 미리보기(웹) 모드입니다. 실제 배경화면 적용·자동 갱신은 안드로이드 기기에 설치한 WallSync 앱에서만 동작합니다.
+          <div style={{ margin: "8px 16px 0" }}>
+            <Notice tone="warn" icon="info">미리보기(웹) 모드예요. 실제 배경화면 적용·자동 갱신은 Android 앱에서만 동작해요.</Notice>
           </div>
         )}
 
         {native && battOk === false && (
-          <div style={{ margin: "12px 0 4px", padding: "12px 14px", borderRadius: 12, background: "rgba(245,158,11,0.12)", border: `1px solid ${C.warn}` }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: C.warn, marginBottom: 4 }}>🔋 배터리 최적화 해제 필요</div>
-            <div style={{ fontSize: 12, color: C.sub, lineHeight: 1.5, marginBottom: 10 }}>
-              최적화가 켜져 있으면 백그라운드 자동 갱신이 끊길 수 있습니다. 한 번만 해제하면 안정적으로 동작합니다.
-            </div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <button onClick={async () => { try { await Wallpaper.requestIgnoreBatteryOptimizations(); } catch { /* */ } }}
-                style={{ padding: "8px 16px", borderRadius: 9, border: "none", background: C.warn, color: "#000", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>해제하기</button>
-              <button onClick={async () => { try { await Wallpaper.openBatterySettings(); } catch { /* */ } }}
-                style={{ padding: "8px 14px", borderRadius: 9, border: `1px solid ${C.border}`, background: "transparent", color: C.sub, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>수동 설정</button>
-            </div>
+          <div style={{ margin: "8px 16px 0" }}>
+            <Notice tone="warn" icon="alert">
+              <div style={{ fontWeight: 700, marginBottom: 2 }}>배터리 최적화 해제가 필요해요</div>
+              <div style={{ color: C.sub, marginBottom: 10 }}>켜져 있으면 백그라운드 자동 갱신이 끊길 수 있어요. 한 번만 해제하면 안정적으로 동작해요.</div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button type="button" onClick={async () => { try { await Wallpaper.requestIgnoreBatteryOptimizations(); } catch { /* */ } }}
+                  style={{ ...primaryBtn(44), background: C.warn, color: C.onWarn }}>해제하기</button>
+                <button type="button" onClick={async () => { try { await Wallpaper.openBatterySettings(); } catch { /* */ } }}
+                  style={outlineBtn(C.sub, C.borderStrong)}>수동 설정</button>
+              </div>
+            </Notice>
           </div>
         )}
 
-        {native && battOk === true && (
-          <div style={{ margin: "12px 0 4px", padding: "8px 12px", borderRadius: 10, background: C.tealSoft, border: `1px solid ${C.teal}`, color: C.teal, fontSize: 11, fontWeight: 600 }}>
-            ✓ 배터리 최적화 해제됨 — 백그라운드 자동 갱신 안정 동작
-          </div>
-        )}
-
-        {/* 현재 적용 중 */}
-        {activeSrc && (
-          <div style={{ display: "flex", gap: 12, alignItems: "center", margin: "14px 0 4px", padding: 12, borderRadius: 14, background: C.surface, border: `1px solid ${teamColor(activeSrc)}55` }}>
-            <img src={activeSrc.url} alt="" style={{ width: 46, height: 82, objectFit: "cover", borderRadius: 8, border: `1px solid ${C.border}`, flexShrink: 0 }} onError={(e) => { (e.target as HTMLImageElement).style.opacity = "0.2"; }} />
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 10, color: C.muted, letterSpacing: 1, fontWeight: 700 }}>현재 적용 중</div>
-              <div style={{ fontSize: 15, fontWeight: 800, color: teamColor(activeSrc), overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{activeSrc.name}</div>
-              <div style={{ fontSize: 11, color: C.sub }}>{activeTime ? `${rel(activeTime)} 적용` : "미적용"} · {targetLabel(activeSrc.target)}</div>
+        {native && battOk !== false && autoCount > 0 && (
+          <section aria-label="자동 갱신 상태" style={{ margin: "8px 16px 0", padding: "12px 12px 12px 14px", borderRadius: 16, background: C.surface, border: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+              <Icon name="checkCircle" size={22} style={{ color: C.teal, flexShrink: 0 }} />
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 15, fontWeight: 700, lineHeight: 1.3 }}>자동 갱신 {autoCount}개 동작 중</div>
+                {battOk === true && <div style={{ fontSize: 13, color: C.sub, lineHeight: 1.3 }}>배터리 최적화 해제됨</div>}
+              </div>
             </div>
-          </div>
+            <button type="button" onClick={handleApplyAll} disabled={applying} aria-label="자동 갱신 소스 지금 갱신" style={{ ...outlineBtn(C.text, C.borderStrong), opacity: applying ? 0.5 : 1, cursor: applying ? "default" : "pointer" }}>
+              <Icon name="refresh" size={18} />{applying ? "갱신 중" : "지금 갱신"}
+            </button>
+          </section>
         )}
 
-        <div style={{ marginTop: 18 }}>
+        {/* 목록 */}
+        <main style={{ padding: 16 }}>
           {sources.length === 0 ? (
-            <div style={{ textAlign: "center", padding: "70px 0", color: C.muted }}>
-              <div style={{ fontSize: 40, marginBottom: 12 }}>🖼️</div>
-              <div style={{ fontSize: 14 }}>등록된 배경화면이 없습니다</div>
-              <div style={{ fontSize: 12, marginTop: 6 }}>“+ 추가”를 눌러 KBO 배경화면을 등록해보세요</div>
+            <div style={{ textAlign: "center", padding: "56px 16px", color: C.muted }}>
+              <Icon name="image" size={44} stroke={1.4} style={{ marginBottom: 12 }} />
+              <div style={{ fontSize: 16, fontWeight: 700, color: C.sub }}>등록된 배경화면이 없어요</div>
+              <div style={{ fontSize: 14, marginTop: 6, marginBottom: 20 }}>KBO 배경화면이나 이미지 URL을 추가해 보세요</div>
+              <button type="button" onClick={() => setEditor({ editing: null })} style={{ ...primaryBtn(48), margin: "0 auto" }}>
+                <Icon name="plus" size={20} stroke={2.2} />첫 배경화면 추가
+              </button>
             </div>
           ) : (
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 14 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               {sources.map((s) => (
                 <SourceCard key={s.id} src={s} sync={syncStatus[s.id]} active={s.id === activeSrc?.id}
                   onApply={handleApply} onTarget={handleTarget} onSchedule={(x) => setSchedFor(x)}
@@ -379,8 +401,19 @@ export default function App() {
               ))}
             </div>
           )}
-        </div>
+        </main>
       </div>
+
+      {/* 추가 버튼 (엄지 닿는 곳) */}
+      {sources.length > 0 && (
+        <button type="button" onClick={() => setEditor({ editing: null })} style={{
+          position: "fixed", right: 16, bottom: "calc(20px + env(safe-area-inset-bottom))", zIndex: 100, height: 56, padding: "0 22px 0 18px",
+          border: "none", borderRadius: 28, background: C.accent, color: "#fff", fontFamily: "inherit", fontSize: 16, fontWeight: 700,
+          display: "flex", alignItems: "center", gap: 8, cursor: "pointer", boxShadow: "0 10px 28px rgba(0,0,0,0.55)",
+        }}>
+          <Icon name="plus" size={22} stroke={2.2} />추가
+        </button>
+      )}
     </div>
   );
 }

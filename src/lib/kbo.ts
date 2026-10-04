@@ -15,7 +15,7 @@ export const STYLES = [
 ];
 export const MODES = [["dark", "다크"], ["light", "라이트"]];
 export const RES = [
-  ["android-fhd", "안드로이드 FHD (1080×2400)"], ["android-qhd", "안드로이드 QHD (1440×3120)"],
+  ["android-fhd", "안드로이드 FHD"], ["android-qhd", "안드로이드 QHD"],
   ["iphone-15-pro", "아이폰 15 Pro"], ["iphone-15-pro-max", "아이폰 15 Pro Max"],
   ["iphone-17", "아이폰 17"], ["iphone-17-pro-max", "아이폰 17 Pro Max"], ["iphone-se", "아이폰 SE"],
 ];

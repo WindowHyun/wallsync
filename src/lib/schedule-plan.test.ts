@@ -67,7 +67,22 @@ describe("notifId", () => {
     expect(id).toBeGreaterThanOrEqual(100000);
     expect(id).toBeLessThan(1000000);
   });
+  it("Java GameNotifyConst.notifId 와 동일한 고정 벡터 (GameNotifyConstTest 와 같은 값)", () => {
+    expect(notifId("2026-07-1018:30")).toBe(981078);
+    expect(notifId("2026-07-1014:00")).toBe(861821);
+    expect(notifId("2026-08-0117:00")).toBe(505849);
+    expect(notifId("a")).toBe(100097);
+    expect(notifId("")).toBe(100000);
+  });
   it("다른 입력이면 다른 id (일반적으로)", () => {
     expect(notifId("a")).not.toBe(notifId("b"));
+  });
+});
+
+describe("planGameNotifications - API status 값", () => {
+  it("서버가 쓰는 영문 status(canceled)도 제외한다", () => {
+    const now = new Date("2026-07-09T00:00:00+09:00").getTime();
+    const out = planGameNotifications(resp([game({ status: "canceled" }), game({ date: "2026-07-11", status: "scheduled" })]), 60, now);
+    expect(out).toHaveLength(1);
   });
 });

@@ -1,9 +1,34 @@
 import { useState } from "react";
 import { Source } from "../types";
 import { WallpaperTarget, SyncResult } from "../wallpaper";
-import { C, teamColor } from "../theme";
-import { appliedLabel, scheduleLabel, syncLabel } from "../lib/format";
-import { TargetPicker, ghostMini } from "./common";
+import { C } from "../theme";
+import { appliedLabel, metaLabel, scheduleLabel, syncLabel } from "../lib/format";
+import { Icon, IconName, ImgStatus, Sheet, TargetPicker, Thumb, iconBtn, outlineBtn, primaryBtn } from "./common";
+
+// ─── 더보기 메뉴 (편집 · URL 복사 · 미리보기 새로고침 · 삭제) ─────────────────────────────
+function MoreSheet({ src, onClose, onEdit, onCopy, onRefresh, onDelete }: {
+  src: Source; onClose: () => void; onEdit: () => void; onCopy: () => void; onRefresh: () => void; onDelete: () => void;
+}) {
+  const row = (icon: IconName, label: string, fn: () => void, danger = false) => (
+    <button type="button" onClick={() => { onClose(); fn(); }} style={{
+      display: "flex", alignItems: "center", gap: 14, width: "100%", minHeight: 56, padding: "0 16px", borderRadius: 14,
+      border: `1px solid ${C.border}`, background: C.card, color: danger ? C.error : C.text, fontFamily: "inherit",
+      fontSize: 16, fontWeight: 600, cursor: "pointer", textAlign: "left",
+    }}>
+      <Icon name={icon} size={20} />{label}
+    </button>
+  );
+  return (
+    <Sheet title={src.name} subtitle="이 배경화면에 할 작업" onClose={onClose}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {row("edit", "편집", onEdit)}
+        {row("copy", "URL 복사", onCopy)}
+        {row("refresh", "미리보기 새로고침", onRefresh)}
+        {row("trash", "삭제", onDelete, true)}
+      </div>
+    </Sheet>
+  );
+}
 
 // ─── 카드 ──────────────────────────────────────────────────────────────────────
 export function SourceCard({ src, sync, active, onApply, onTarget, onSchedule, onEdit, onCopy, onDelete }: {
@@ -17,55 +42,73 @@ export function SourceCard({ src, sync, active, onApply, onTarget, onSchedule, o
   onCopy: (s: Source) => void;
   onDelete: (s: Source) => void;
 }) {
-  const accent = teamColor(src);
   const sl = syncLabel(sync);
   const [bust, setBust] = useState(0);
-  const [imgLoading, setImgLoading] = useState(true);
+  const [imgStatus, setImgStatus] = useState<ImgStatus>("loading");
+  const [menu, setMenu] = useState(false);
   const displaySrc = bust ? src.url + (src.url.includes("?") ? "&" : "?") + "_t=" + bust : src.url;
-  const refresh = () => { setImgLoading(true); setBust(Date.now()); };
-  const border = active ? accent : src.auto ? C.teal : "transparent";
+  const refresh = () => setBust(Date.now());
+  const failed = imgStatus === "error";
 
   return (
-    <div style={{ background: C.card, borderRadius: 16, overflow: "hidden", border: `1.5px solid ${border}`, boxShadow: active ? `0 8px 24px ${accent}44` : "none" }}>
-      <div style={{ position: "relative", paddingTop: "150%", background: C.surface }}>
-        <img key={displaySrc} src={displaySrc} alt={src.name} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }}
-          onLoad={(e) => { setImgLoading(false); (e.target as HTMLImageElement).style.opacity = "1"; }}
-          onError={(e) => { setImgLoading(false); (e.target as HTMLImageElement).style.opacity = "0.2"; }} />
-        {imgLoading && <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: C.muted, fontSize: 11 }}>불러오는 중…</div>}
+    <article aria-label={src.name} style={{
+      display: "flex", gap: 12, padding: 12, borderRadius: 18, background: C.card,
+      border: `1.5px solid ${active ? C.activeLine : C.border}`,
+    }}>
+      <Thumb src={displaySrc} width={84} height={150} alt={`${src.name} 미리보기`} onStatus={setImgStatus} />
 
-        <div style={{ position: "absolute", top: 8, left: 8, background: "rgba(0,0,0,0.6)", borderRadius: 6, padding: "2px 8px", fontSize: 9, fontWeight: 700, color: src.type === "kbo" ? accent : C.sub }}>
-          {src.type === "kbo" ? "KBO" : "URL"}
+      <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, minHeight: 24 }}>
+          <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{src.name}</h2>
+          {active && (
+            <span style={{ flexShrink: 0, height: 24, padding: "0 8px", borderRadius: 12, background: C.accentSoft, color: C.accentText, fontSize: 12, fontWeight: 700, display: "flex", alignItems: "center", gap: 4 }}>
+              <Icon name="check" size={12} stroke={3} />적용중
+            </span>
+          )}
         </div>
-        {active && <div style={{ position: "absolute", top: 8, left: 48, background: accent, borderRadius: 6, padding: "2px 8px", fontSize: 9, fontWeight: 800, color: "#fff" }}>✓ 적용중</div>}
-        {src.auto && (
-          <div style={{ position: "absolute", top: 8, right: 8, background: C.tealSoft, border: `1px solid ${C.teal}`, borderRadius: 6, padding: "2px 7px", fontSize: 9, fontWeight: 700, color: C.teal }}>
-            ⚡ {scheduleLabel(src.schedule)}
+        <div style={{ fontSize: 13, color: C.sub, lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{metaLabel(src)}</div>
+
+        {failed ? (
+          <div role="alert" style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, color: C.error, fontSize: 14, fontWeight: 700, lineHeight: 1.3 }}>
+              <Icon name="alert" size={16} stroke={2} style={{ flexShrink: 0 }} />이미지를 불러오지 못했어요
+            </div>
+            <div style={{ fontSize: 13, color: C.muted, lineHeight: 1.4 }}>미리보기만 실패했을 수 있어요. 아래 ‘지금 적용’은 그대로 쓸 수 있어요.</div>
+            <button type="button" onClick={refresh} style={{ ...outlineBtn(), alignSelf: "flex-start", marginTop: 4 }}>
+              <Icon name="refresh" size={18} />미리보기 다시 시도
+            </button>
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            {src.auto && (
+              <span style={{ alignSelf: "flex-start", height: 26, padding: "0 10px", borderRadius: 13, background: C.tealSoft, color: C.teal, fontSize: 13, fontWeight: 700, display: "flex", alignItems: "center", gap: 5 }}>
+                <Icon name="clock" size={13} stroke={2.4} />{scheduleLabel(src.schedule)}
+              </span>
+            )}
+            <div style={{ fontSize: 13, color: sl && !sl.ok ? sl.color : C.muted, lineHeight: 1.3, fontWeight: sl && !sl.ok ? 700 : 400 }}>
+              {sl ? sl.text : appliedLabel(src.lastApplied)}
+            </div>
           </div>
         )}
-        <button onClick={refresh} title="미리보기 새로고침" aria-label="미리보기 새로고침" style={{ position: "absolute", bottom: 8, left: 8, width: 28, height: 28, borderRadius: 8, background: "rgba(0,0,0,0.6)", border: "none", color: "#fff", cursor: "pointer", fontSize: 13 }}>↻</button>
-        <button onClick={() => onDelete(src)} title="삭제" aria-label={`"${src.name}" 삭제`} style={{ position: "absolute", bottom: 8, right: 8, width: 28, height: 28, borderRadius: 8, background: "rgba(0,0,0,0.6)", border: "none", color: C.error, cursor: "pointer", fontSize: 12 }}>✕</button>
-      </div>
 
-      <div style={{ padding: "10px 12px 12px" }}>
-        <div style={{ color: C.text, fontSize: 13, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{src.name}</div>
-        <div style={{ color: C.muted, fontSize: 10, marginTop: 2 }}>{appliedLabel(src.lastApplied)}</div>
-        {sl && (
-          <div style={{ color: sl.color, fontSize: 10, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {sl.text}{sync && !sync.ok && sync.error ? ` · ${sync.error}` : ""}
-          </div>
-        )}
-
-        <div style={{ margin: "8px 0" }}><TargetPicker value={src.target} onChange={(t) => onTarget(src.id, t)} /></div>
+        <TargetPicker value={src.target} onChange={(t) => onTarget(src.id, t)} />
 
         <div style={{ display: "flex", gap: 6 }}>
-          <button onClick={() => onApply(src)} style={{ flex: 1, padding: "8px 0", borderRadius: 9, border: "none", background: accent, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>지금 적용</button>
-          <button onClick={() => onSchedule(src)} title="자동 갱신" aria-label="자동 갱신 설정" style={{ padding: "8px 11px", borderRadius: 9, border: `1px solid ${src.auto ? C.teal : C.border}`, background: src.auto ? C.tealSoft : "transparent", color: src.auto ? C.teal : C.sub, fontSize: 12, cursor: "pointer" }}>⏰</button>
-        </div>
-        <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
-          <button onClick={() => onEdit(src)} style={ghostMini}>✎ 편집</button>
-          <button onClick={() => onCopy(src)} style={ghostMini}>⧉ URL</button>
+          {/* 미리보기(WebView)와 실제 적용(네이티브 다운로드)은 별개 경로 — 미리보기가 실패해도 적용은 항상 가능하게 둔다 */}
+          <button type="button" onClick={() => onApply(src)} style={{ ...primaryBtn(44), flex: 1, padding: 0 }}>지금 적용</button>
+          <button type="button" onClick={() => onSchedule(src)} aria-label={src.auto ? "자동 갱신 설정 (켜짐)" : "자동 갱신 설정"} style={iconBtn(src.auto)}>
+            <Icon name="clock" />
+          </button>
+          <button type="button" onClick={() => setMenu(true)} aria-label={`${src.name} 더보기`} aria-haspopup="dialog" style={iconBtn(false)}>
+            <Icon name="more" />
+          </button>
         </div>
       </div>
-    </div>
+
+      {menu && (
+        <MoreSheet src={src} onClose={() => setMenu(false)}
+          onEdit={() => onEdit(src)} onCopy={() => onCopy(src)} onRefresh={refresh} onDelete={() => onDelete(src)} />
+      )}
+    </article>
   );
 }

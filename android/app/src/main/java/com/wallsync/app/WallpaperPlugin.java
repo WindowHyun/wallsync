@@ -173,36 +173,14 @@ public class WallpaperPlugin extends Plugin {
         }
         if (lead == null || lead < 1) lead = 60;
 
-        Data data = new Data.Builder()
-                .putString("team", team)
-                .putInt("lead", lead)
-                .build();
-        Constraints net = new Constraints.Builder()
-                .setRequiredNetworkType(NetworkType.CONNECTED)
-                .build();
-        WorkManager wm = WorkManager.getInstance(getContext());
-
-        // 지금 즉시 한 번 예약 갱신
-        OneTimeWorkRequest now = new OneTimeWorkRequest.Builder(GameNotifyWorker.class)
-                .setInputData(data).setConstraints(net).build();
-        wm.enqueueUniqueWork(GameNotifyConst.UNIQUE_NOW, ExistingWorkPolicy.REPLACE, now);
-
-        // 매일 재예약 (다가오는 경기가 소진되지 않게 연장)
-        PeriodicWorkRequest daily = new PeriodicWorkRequest.Builder(
-                GameNotifyWorker.class, 1, TimeUnit.DAYS)
-                .setInputData(data).setConstraints(net).build();
-        wm.enqueueUniquePeriodicWork(GameNotifyConst.UNIQUE_PERIODIC, ExistingPeriodicWorkPolicy.UPDATE, daily);
-
+        GameNotifyScheduler.enable(getContext(), team, lead);
         call.resolve();
     }
 
     /** 경기 알림 워커·예약 알람 전부 취소 */
     @PluginMethod
     public void cancelGameWorker(PluginCall call) {
-        WorkManager wm = WorkManager.getInstance(getContext());
-        wm.cancelUniqueWork(GameNotifyConst.UNIQUE_PERIODIC);
-        wm.cancelUniqueWork(GameNotifyConst.UNIQUE_NOW);
-        GameNotifyWorker.cancelAllAlarms(getContext());
+        GameNotifyScheduler.disable(getContext());
         call.resolve();
     }
 
